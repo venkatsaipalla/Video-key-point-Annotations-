@@ -12,7 +12,7 @@ import {
 } from "react-konva";
 
 import ReactPlayer from "react-player";
-import dummyVideo from "./dummy-walking_2.mp4";
+import dummyVideo from "./dummy-walking.mp4";
 import { generateUniqueId } from "../services/idHelperService.ts";
 import { DUMMY_ANNOTATIONS } from "./dummyData.js";
 // import { Card, IconButton, Input, Switch, TextField } from "@material-ui/core";
@@ -27,6 +27,7 @@ import { removeLineFromFrame, removeDotFromFrame } from '../utils/annotations.ts
 import { annotationsToDotsCsv, annotationsToLinesCsv, downloadCsv } from '../utils/csv.ts';
 import { SKELETON_TEMPLATES, applySkeletonTemplate, SkeletonTemplate } from '../utils/skeletonTemplates.ts';
 import { UndoRedoManager } from '../utils/undoRedo.ts';
+import { detectEdges, DEFAULT_EDGE_OPTIONS, EdgeDetectionOptions } from '../utils/edgeDetection.ts';
 
 const DEFAULT_FRAME_RATE = 15;
 
@@ -88,6 +89,12 @@ const VideoAnnotations2 = () => {
   // Undo/Redo state
   const [undoRedoManager] = useState(() => new UndoRedoManager());
   const [undoRedoInfo, setUndoRedoInfo] = useState({ canUndo: false, canRedo: false, currentAction: 'Initial state', totalStates: 1 });
+  // Edge detection state
+  const [edgeOptions, setEdgeOptions] = useState<EdgeDetectionOptions>(DEFAULT_EDGE_OPTIONS);
+  const [isDetectingEdges, setIsDetectingEdges] = useState(false);
+  const [showDebugInfo, setShowDebugInfo] = useState(false);
+  const [autoDetectMode, setAutoDetectMode] = useState<'full' | 'selection'>('full');
+  const [autoDetectSelection, setAutoDetectSelection] = useState<{x: number, y: number, width: number, height: number} | null>(null);
   console.log({ allVideoAnnotations });
   //set current frame number on time change
   useEffect(() => {
@@ -148,6 +155,76 @@ const VideoAnnotations2 = () => {
     });
     
     setSelectedTemplate(''); // Reset selection
+  };
+
+  const handleAutoDetectEdges = async () => {
+    if (!playerRef.current || isDetectingEdges) return;
+    
+    // Check if selection mode is enabled but no selection is made
+    if (autoDetectMode === 'selection' && !autoDetectSelection) {
+      alert('Please select an area first by dragging on the video, or switch to "Full Frame" mode.');
+      return;
+    }
+    
+    setIsDetectingEdges(true);
+    
+    try {
+      // Get the video element from ReactPlayer
+      const videoElement = playerRef.current.getInternalPlayer() as HTMLVideoElement;
+      if (!videoElement) {
+        console.error('Video element not found');
+        return;
+      }
+
+      // Save current state before auto-detection
+      saveToHistory(`Auto-detect edges (${autoDetectMode} mode)`);
+
+      // Detect edges with correct display dimensions and optional bounding box
+      const { dots, lines } = detectEdges(
+        videoElement, 
+        edgeOptions, 
+        800, 
+        450, 
+        autoDetectMode === 'selection' ? autoDetectSelection : undefined
+      );
+      
+      if (dots.length > 0 || lines.length > 0) {
+        setAllVideoAnnotations(prev => {
+          const newAnnotations = [...prev];
+          newAnnotations.push({
+            id: generateUniqueId(),
+            label: `Auto-detected edges (${dots.length} points, ${autoDetectMode} mode)`,
+            frames: [{
+              frame: currentFrame,
+              dots,
+              lines,
+            }]
+          });
+          return newAnnotations;
+        });
+        
+        if (showDebugInfo) {
+          console.log('Edge detection results:', {
+            mode: autoDetectMode,
+            boundingBox: autoDetectSelection,
+            dotsFound: dots.length,
+            linesFound: lines.length,
+            sensitivity: edgeOptions.threshold,
+            sampleDots: dots.slice(0, 10), // Show first 10 dots for debugging
+            sampleLines: lines.slice(0, 10), // Show first 10 lines for debugging
+            allDots: dots, // Full dots array for debugging
+            allLines: lines // Full lines array for debugging
+          });
+        }
+      } else {
+        alert('No edges detected. Try adjusting the sensitivity settings, selecting a different area, or ensure the video frame has clear edges.');
+      }
+    } catch (error) {
+      console.error('Error during edge detection:', error);
+      alert('Error during edge detection. Please try again.');
+    } finally {
+      setIsDetectingEdges(false);
+    }
   };
 
   // Undo/Redo helper functions
@@ -562,15 +639,28 @@ const VideoAnnotations2 = () => {
       const pointerPosition = stage.getPointerPosition();
       // Track mouse down time
       setMouseDownTime(Date.now());
-      // Start creating the selection box
-      setSelectionBox({
-        x: pointerPosition.x,
-        y: pointerPosition.y,
-        width: 0,
-        height: 0,
-      });
-      setIsSelecting(true);
-      setIsDraggingSelectionBox(false);
+      
+      // If in auto-detect selection mode, create selection for auto-detection
+      if (autoDetectMode === 'selection') {
+        setSelectionBox({
+          x: pointerPosition.x,
+          y: pointerPosition.y,
+          width: 0,
+          height: 0,
+        });
+        setIsSelecting(true);
+        setIsDraggingSelectionBox(false);
+      } else {
+        // Normal annotation mode - start creating the selection box
+        setSelectionBox({
+          x: pointerPosition.x,
+          y: pointerPosition.y,
+          width: 0,
+          height: 0,
+        });
+        setIsSelecting(true);
+        setIsDraggingSelectionBox(false);
+      }
     }
   };
   // Mouse move - update the selection box
@@ -606,10 +696,18 @@ const VideoAnnotations2 = () => {
       const pointerPos = stage.getPointerPosition();
       if (!pointerPos) return;
 
-      // Finalize and set the dots selected within the selection box
-      const finalSelectedDots = calculateSelectedDots(selectionBox);
-      setBoundingBoxSelectedDots(finalSelectedDots);
-      // setSelectedPoints(finalSelectedDots);  // Set selected points in global state
+      // If in auto-detect selection mode, set the selection for auto-detection
+      if (autoDetectMode === 'selection' && selectionBox) {
+        const normalizedBox = normalizeSelectionBox(selectionBox);
+        if (normalizedBox.width > 10 && normalizedBox.height > 10) { // Minimum size check
+          setAutoDetectSelection(normalizedBox);
+        }
+      } else {
+        // Normal annotation mode - finalize and set the dots selected within the selection box
+        const finalSelectedDots = calculateSelectedDots(selectionBox);
+        setBoundingBoxSelectedDots(finalSelectedDots);
+      }
+      
       // Reset the selection box to avoid visual glitches after selection
       setSelectionBox({
         x: 0,
@@ -1144,9 +1242,24 @@ const VideoAnnotations2 = () => {
                       y={selectionBox.y}
                       width={selectionBox.width}
                       height={selectionBox.height}
-                      fill="rgba(0, 0, 255, 0.3)" // Blue transparent box
-                      stroke="blue"
-                      strokeWidth={1}
+                      fill={autoDetectMode === 'selection' ? "rgba(76, 175, 80, 0.3)" : "rgba(0, 0, 255, 0.3)"}
+                      stroke={autoDetectMode === 'selection' ? "#4caf50" : "blue"}
+                      strokeWidth={2}
+                      dash={[5, 5]}
+                    />
+                  )}
+                  
+                  {/* Auto-detection selection area indicator */}
+                  {autoDetectSelection && autoDetectMode === 'selection' && (
+                    <Rect
+                      x={autoDetectSelection.x}
+                      y={autoDetectSelection.y}
+                      width={autoDetectSelection.width}
+                      height={autoDetectSelection.height}
+                      stroke="#4caf50"
+                      strokeWidth={3}
+                      dash={[10, 5]}
+                      fill="rgba(76, 175, 80, 0.2)"
                     />
                   )}
                   {
@@ -1257,6 +1370,72 @@ const VideoAnnotations2 = () => {
                 Apply
               </Button>
             </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, color: '#333', minWidth: 60 }}>Mode</span>
+              <select 
+                value={autoDetectMode} 
+                onChange={(e) => {
+                  setAutoDetectMode(e.target.value as 'full' | 'selection');
+                  setAutoDetectSelection(null); // Clear selection when switching modes
+                }}
+                style={{ width: 100, fontSize: 11 }}
+              >
+                <option value="full">Full Frame</option>
+                <option value="selection">Selection</option>
+              </select>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, color: '#333', minWidth: 60 }}>Sensitivity</span>
+              <input 
+                type="range" 
+                min={10} 
+                max={100} 
+                step={5} 
+                value={edgeOptions.threshold} 
+                onChange={(e) => setEdgeOptions(prev => ({ ...prev, threshold: parseInt(e.target.value) }))} 
+                style={{ width: 80 }} 
+              />
+              <span style={{ width: 30, textAlign: 'right', fontSize: 12 }}>{edgeOptions.threshold}</span>
+              <Button 
+                variant="contained" 
+                size="small" 
+                onClick={handleAutoDetectEdges} 
+                disabled={isDetectingEdges || !videoUrl}
+                style={{ backgroundColor: '#4caf50', color: 'white' }}
+              >
+                {isDetectingEdges ? 'Detecting...' : 'Auto-Detect'}
+              </Button>
+              <Button 
+                variant="outlined" 
+                size="small" 
+                onClick={() => setShowDebugInfo(!showDebugInfo)}
+                style={{ fontSize: 10 }}
+              >
+                {showDebugInfo ? 'Hide Debug' : 'Debug'}
+              </Button>
+            </div>
+
+            {autoDetectMode === 'selection' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666' }}>
+                {autoDetectSelection ? (
+                  <span>Selection: {Math.round(autoDetectSelection.width)}×{Math.round(autoDetectSelection.height)}</span>
+                ) : (
+                  <span>Drag on video to select area</span>
+                )}
+                {autoDetectSelection && (
+                  <Button 
+                    variant="text" 
+                    size="small" 
+                    onClick={() => setAutoDetectSelection(null)}
+                    style={{ fontSize: 10, minWidth: 'auto', padding: '2px 6px' }}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+            )}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <Button 
