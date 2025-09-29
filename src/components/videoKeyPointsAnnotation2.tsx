@@ -1371,7 +1371,7 @@ const VideoAnnotations2 = () => {
           </div>
           
           {/* Video Controls - Play/Pause and Progress Bar */}
-          <div style={{ marginTop: 8, width: '800px', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ marginTop: 8, width: '100%', maxWidth: '800px', display: 'flex', gap: 8, alignItems: 'center' }}>
             <Button variant="contained" size="small" onClick={handlePlayPause}>
               {isPlaying ? 'Pause' : 'Play'}
             </Button>
@@ -1395,27 +1395,27 @@ const VideoAnnotations2 = () => {
           </div>
           
           {/* Toolbar */}
-          <div style={{ marginTop: 8, width: '800px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#333', minWidth: 28 }}>FPS</span>
-              <input type="number" min={1} value={fps} onChange={(e)=> setFps(parseInt(e.target.value)||1)} style={{ width: 64 }} />
+          <div className="va-toolbar" style={{ marginTop: 8 }}>
+            <div className="va-group">
+              <span className="va-label">FPS</span>
+              <input type="number" min={1} value={fps} onChange={(e)=> setFps(parseInt(e.target.value)||1)} style={{ width: 96 }} />
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 14, color: '#333', minWidth: 56, fontWeight: 500 }}>Dot size</span>
-              <input type="range" min={2} max={12} step={1} value={dotRadius} onChange={(e)=> setDotRadius(parseInt(e.target.value)||3)} style={{ width: 140 }} />
-              <span style={{ width: 24, textAlign: 'right', fontSize: 14, fontWeight: 500 }}>{dotRadius}</span>
+            <div className="va-group">
+              <span className="va-label" style={{ minWidth: 56, fontWeight: 600 }}>Dot size</span>
+              <input type="range" min={2} max={12} step={1} value={dotRadius} onChange={(e)=> setDotRadius(parseInt(e.target.value)||3)} style={{ width: 160 }} />
+              <span style={{ width: 30, textAlign: 'right', fontSize: 14, fontWeight: 500 }}>{dotRadius}</span>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 14, color: '#333', minWidth: 64, fontWeight: 500 }}>Line width</span>
-              <input type="range" min={1} max={8} step={1} value={lineStrokeWidth} onChange={(e)=> setLineStrokeWidth(parseInt(e.target.value)||2)} style={{ width: 140 }} />
-              <span style={{ width: 24, textAlign: 'right', fontSize: 14, fontWeight: 500 }}>{lineStrokeWidth}</span>
+            <div className="va-group">
+              <span className="va-label" style={{ minWidth: 64, fontWeight: 600 }}>Line width</span>
+              <input type="range" min={1} max={8} step={1} value={lineStrokeWidth} onChange={(e)=> setLineStrokeWidth(parseInt(e.target.value)||2)} style={{ width: 160 }} />
+              <span style={{ width: 30, textAlign: 'right', fontSize: 14, fontWeight: 500 }}>{lineStrokeWidth}</span>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#333', minWidth: 60 }}>Template</span>
-              <select value={selectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)} style={{ width: 120 }}>
+            <div className="va-group">
+              <span className="va-label">Template</span>
+              <select value={selectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)} style={{ width: 160 }}>
                 <option value="">Select template</option>
                 {SKELETON_TEMPLATES.map(template => (
                   <option key={template.id} value={template.id}>{template.name}</option>
@@ -1426,27 +1426,27 @@ const VideoAnnotations2 = () => {
               </Button>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#333', minWidth: 60 }}>Mode</span>
+            <div className="va-group">
+              <span className="va-label">Mode</span>
               <select 
                 value={autoDetectMode} 
                 onChange={(e) => {
                   setAutoDetectMode(e.target.value as 'full' | 'selection');
                   setAutoDetectSelection(null); // Clear selection when switching modes
                 }}
-                style={{ width: 100, fontSize: 11 }}
+                style={{ width: 140, fontSize: 11 }}
               >
                 <option value="full">Full Frame</option>
                 <option value="selection">Selection</option>
               </select>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#333', minWidth: 60 }}>Model</span>
+            <div className="va-group" style={{ minWidth: 0 }}>
+              <span className="va-label">Model</span>
               <select
                 value={edgeOptions.model || 'dexined'}
                 onChange={(e) => setEdgeOptions(prev => ({ ...prev, model: e.target.value as any }))}
-                style={{ width: 120, fontSize: 11 }}
+                style={{ width: 180, minWidth: 0, fontSize: 11 }}
               >
                 <option value="dexined">DexiNed (Best)</option>
                 <option value="hed">HED</option>
@@ -1457,9 +1457,8 @@ const VideoAnnotations2 = () => {
               </select>
             </div>
 
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#333', minWidth: 60 }}>Sensitivity</span>
+            <div className="va-group">
+              <span className="va-label">Sensitivity</span>
               <input 
                 type="range" 
                 min={10} 
@@ -1467,7 +1466,7 @@ const VideoAnnotations2 = () => {
                 step={5} 
                 value={edgeOptions.threshold} 
                 onChange={(e) => setEdgeOptions(prev => ({ ...prev, threshold: parseInt(e.target.value) }))} 
-                style={{ width: 80 }} 
+                style={{ width: 160 }} 
               />
               <span style={{ width: 30, textAlign: 'right', fontSize: 12 }}>{edgeOptions.threshold}</span>
               <Button 
