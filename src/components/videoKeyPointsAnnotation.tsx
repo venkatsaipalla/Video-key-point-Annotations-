@@ -1,6 +1,6 @@
 //@ts-nocheck
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Stage, Layer, Circle, Line, Text,Rect , Label, Tag } from 'react-konva';
+import { Stage, Layer, Circle, Line, Text, Rect, Label, Tag } from 'react-konva';
 
 import ReactPlayer from 'react-player';
 import dummyVideo from './dummy-walking.mp4'
@@ -36,23 +36,23 @@ interface IAnnotation {
         lines: Array<ILine>;
     }>
 }
-const DeletePopup = ({ x, y, onDelete, onClose,scenario }) => {
-  return (
-      <div style={{
-          position: 'absolute',
-          left: x,
-          top: y,
-          backgroundColor: 'white',
-          border: '1px solid black',
-          padding: '10px',
-          zIndex: 10,
-          borderRadius: '5px',
-      }}>
-          <p>{scenario==="deleteSingleLine"?'Delete Line?':scenario==="deleteSingledot"?'Delete dot?':scenario==="deletAllDots"&&"Delete all selected dots?"}</p>
-          <button onClick={onDelete}>Delete</button>
-          <button onClick={onClose}>Cancel</button>
-      </div>
-  );
+const DeletePopup = ({ x, y, onDelete, onClose, scenario }) => {
+    return (
+        <div style={{
+            position: 'absolute',
+            left: x,
+            top: y,
+            backgroundColor: 'white',
+            border: '1px solid black',
+            padding: '10px',
+            zIndex: 10,
+            borderRadius: '5px',
+        }}>
+            <p>{scenario === "deleteSingleLine" ? 'Delete Line?' : scenario === "deleteSingledot" ? 'Delete dot?' : scenario === "deletAllDots" && "Delete all selected dots?"}</p>
+            <button onClick={onDelete}>Delete</button>
+            <button onClick={onClose}>Cancel</button>
+        </div>
+    );
 };
 
 const VideoAnnotations = () => {
@@ -98,7 +98,7 @@ const VideoAnnotations = () => {
     const [mouseDownPosition, setMouseDownPosition] = useState({ x: 0, y: 0 });
     const [mouseDownTime, setMouseDownTime] = useState(null);
     const CLICK_THRESHOLD = 300;
-    console.log({allVideoAnnotations})
+    console.log({ allVideoAnnotations })
     //set current frame number on time change
     useEffect(() => {
         const calculatedFrame = Math.round(currentTime * fps);
@@ -153,16 +153,16 @@ const VideoAnnotations = () => {
                 let annFound = false;
                 allVideoAnnotations.forEach(ann => {
                     ann.frames.forEach(frameObj => {
-                        if(frameObj.frame === lastFrameThatHaveAnnotations){
+                        if (frameObj.frame === lastFrameThatHaveAnnotations) {
                             annFound = true;
                             return;
                         }
                     })
-                    if(annFound){
+                    if (annFound) {
                         return;
                     }
                 })
-                if(annFound){
+                if (annFound) {
                     break;
                 }
                 lastFrameThatHaveAnnotations--;
@@ -170,19 +170,19 @@ const VideoAnnotations = () => {
 
             console.log("lastFrameThatHaveAnnotations: ", lastFrameThatHaveAnnotations)
 
-            if(lastFrameThatHaveAnnotations){
+            if (lastFrameThatHaveAnnotations) {
                 newAnnotations.map(ann => {
                     const frameObjToCopy = ann.frames.find(frameObj => frameObj.frame === lastFrameThatHaveAnnotations);
 
-                    if(frameObjToCopy){
-                            ann.frames = [...ann.frames.filter(frameObj => frameObj.frame !== currentFrame ), {
-                                frame: currentFrame,
-                                dots: [...(frameObjToCopy.dots || [])],
-                                lines: [...(frameObjToCopy.lines || [])]
-                            }]
-                        }
-                        return ann;
+                    if (frameObjToCopy) {
+                        ann.frames = [...ann.frames.filter(frameObj => frameObj.frame !== currentFrame), {
+                            frame: currentFrame,
+                            dots: [...(frameObjToCopy.dots || [])],
+                            lines: [...(frameObjToCopy.lines || [])]
+                        }]
                     }
+                    return ann;
+                }
                 )
             }
 
@@ -229,147 +229,147 @@ const VideoAnnotations = () => {
     // console.log("^^^^^^^^^^^^^^^^^^^^^^^", lastEditedFrameContext)
 
     const handleCanvasClick = (e) => {
-      e.evt.preventDefault();
-      if(isPlaying) return
-      if (e.evt.button === 2) { // Check for right-click
-          // e.evt.preventDefault(); 
-          setSelectedPoints([]);
-          setPreviousDot(null);
-          setDeleteLineIndex(null);
-          return; // Exit function to prevent dot creation
-      }
-      else if (e.evt.button === 1) { // Check for cursor-click
-        // setCurrentKeypoints([]); // Reset keypoints
-        //   setCurrentLines([]); // Reset lines
-        setBoundingBoxSelectedDots([])
-        setSelectedPoints([]); // Reset selected points
-        setPreviousDot(null); // Reset previous dot
-        setDeleteLineIndex(null); // Reset delete line index
+        e.evt.preventDefault();
+        if (isPlaying) return
+        if (e.evt.button === 2) { // Check for right-click
+            // e.evt.preventDefault(); 
+            setSelectedPoints([]);
+            setPreviousDot(null);
+            setDeleteLineIndex(null);
+            return; // Exit function to prevent dot creation
+        }
+        else if (e.evt.button === 1) { // Check for cursor-click
+            // setCurrentKeypoints([]); // Reset keypoints
+            //   setCurrentLines([]); // Reset lines
+            setBoundingBoxSelectedDots([])
+            setSelectedPoints([]); // Reset selected points
+            setPreviousDot(null); // Reset previous dot
+            setDeleteLineIndex(null); // Reset delete line index
 
-        // Delete all annotations for the current frame
-        setAllVideoAnnotations(prevAnnotations => {
-            return prevAnnotations.map(annotation => {
-                return {
-                    ...annotation,
-                    frames: annotation.frames.filter(frame => frame.frame !== currentFrame)
-                };
-            }).filter(annotation => annotation.frames.length > 0); // Remove annotations that have no frames left
-        });
-        return;
-        return;
-    }
-    else if (boundingBoxSelectedDots.length>0) {
-      //don't create new dot while releasing the bounding box
-      return;
-    }
-      const stage = e.target.getStage();
-      const point = stage.getPointerPosition();
-      let isClickOnDot = false;
-      currentAnnotations.forEach(ann => {
-          ann.frames.forEach(timestamp => {
-              timestamp.dots.forEach(dot => {
-                  const distance = Math.sqrt(Math.pow(dot.x - point.x, 2) + Math.pow(dot.y - point.y, 2));
-                  if (distance < 8) { // 8 is the radius threshold to detect the click on a dot
-                      isClickOnDot = true;
-                      return;
-                  }
-              })
-              if(isClickOnDot) return;
-          })
-      })
-      if (!isClickOnDot) {
-          // Create a new dot
-          const newDot = {
-              id: generateUniqueId(),
-              x: point.x,
-              y: point.y,
-              color: 'black',
-          };
-          console.log({newDot,isClickOnDot})
-          setAllVideoAnnotations(prev => {
-              const newAnnotations = [...prev];
-
-               // Case 1: If no dots are selected (current or previous), create a new annotation
-              if (!previousDot && selectedPoints.length === 0) {
-                newAnnotations.push({
-                    id: generateUniqueId(),
-                    label: '',
-                    frames: [{
-                        frame: currentFrame,
-                        dots: [newDot],
-                        lines: [],
-                    }]
-                });
-              } 
-              
-              // Case 2: If a dot is selected (current or previous), append to the selected annotation's dots array
-              else if (selectedPoints.length > 0) {
-                const selectedDot = selectedPoints[0];  // Get the selected dot
-                const annotationId = selectedAnnotationId;  // Use the ID of the currently selected annotation
-                newAnnotations.forEach(annotation => {
-                  console.log({annotation,selectedAnnotationId})
-                    if (annotation.id === selectedAnnotationId) {
-                        let frame = annotation.frames.find(f => f.frame === currentFrame);
-                        if (frame) {
-                            frame.dots.push(newDot);  // Add dot to existing frame
-                        } else {
-                            annotation.frames.push({
-                                frame: currentFrame,
-                                dots: [newDot],  // New frame with the dot
-                                lines: [],
-                            });
-                        }
+            // Delete all annotations for the current frame
+            setAllVideoAnnotations(prevAnnotations => {
+                return prevAnnotations.map(annotation => {
+                    return {
+                        ...annotation,
+                        frames: annotation.frames.filter(frame => frame.frame !== currentFrame)
+                    };
+                }).filter(annotation => annotation.frames.length > 0); // Remove annotations that have no frames left
+            });
+            return;
+            return;
+        }
+        else if (boundingBoxSelectedDots.length > 0) {
+            //don't create new dot while releasing the bounding box
+            return;
+        }
+        const stage = e.target.getStage();
+        const point = stage.getPointerPosition();
+        let isClickOnDot = false;
+        currentAnnotations.forEach(ann => {
+            ann.frames.forEach(timestamp => {
+                timestamp.dots.forEach(dot => {
+                    const distance = Math.sqrt(Math.pow(dot.x - point.x, 2) + Math.pow(dot.y - point.y, 2));
+                    if (distance < 8) { // 8 is the radius threshold to detect the click on a dot
+                        isClickOnDot = true;
+                        return;
                     }
-                });
-                // setSelectedPoints([...selectedPoints, newDot]);  // Append the new dot to selected points
-                // setPreviousDot(selectedPoints[0]);
-              }
-              return newAnnotations;
-          })
-      }
-      // setPreviousDot(null);
+                })
+                if (isClickOnDot) return;
+            })
+        })
+        if (!isClickOnDot) {
+            // Create a new dot
+            const newDot = {
+                id: generateUniqueId(),
+                x: point.x,
+                y: point.y,
+                color: 'black',
+            };
+            console.log({ newDot, isClickOnDot })
+            setAllVideoAnnotations(prev => {
+                const newAnnotations = [...prev];
+
+                // Case 1: If no dots are selected (current or previous), create a new annotation
+                if (!previousDot && selectedPoints.length === 0) {
+                    newAnnotations.push({
+                        id: generateUniqueId(),
+                        label: '',
+                        frames: [{
+                            frame: currentFrame,
+                            dots: [newDot],
+                            lines: [],
+                        }]
+                    });
+                }
+
+                // Case 2: If a dot is selected (current or previous), append to the selected annotation's dots array
+                else if (selectedPoints.length > 0) {
+                    const selectedDot = selectedPoints[0];  // Get the selected dot
+                    const annotationId = selectedAnnotationId;  // Use the ID of the currently selected annotation
+                    newAnnotations.forEach(annotation => {
+                        console.log({ annotation, selectedAnnotationId })
+                        if (annotation.id === selectedAnnotationId) {
+                            let frame = annotation.frames.find(f => f.frame === currentFrame);
+                            if (frame) {
+                                frame.dots.push(newDot);  // Add dot to existing frame
+                            } else {
+                                annotation.frames.push({
+                                    frame: currentFrame,
+                                    dots: [newDot],  // New frame with the dot
+                                    lines: [],
+                                });
+                            }
+                        }
+                    });
+                    // setSelectedPoints([...selectedPoints, newDot]);  // Append the new dot to selected points
+                    // setPreviousDot(selectedPoints[0]);
+                }
+                return newAnnotations;
+            })
+        }
+        // setPreviousDot(null);
     };
 
     const handleLineRightClick = (e, lineId, annotationId) => {
-      e.evt.preventDefault(); // Prevent default right-click menu
+        e.evt.preventDefault(); // Prevent default right-click menu
 
-      // Set popup position based on cursor position
-      const { clientX, clientY } = e.evt;
-      setPopupLinePosition({ x: clientX, y: clientY });
+        // Set popup position based on cursor position
+        const { clientX, clientY } = e.evt;
+        setPopupLinePosition({ x: clientX, y: clientY });
 
-      // Set the line to be deleted
-      setLineToDelete({ id: lineId, annotationId });
-      setShowLinePopup(true); // Show the delete popup
+        // Set the line to be deleted
+        setLineToDelete({ id: lineId, annotationId });
+        setShowLinePopup(true); // Show the delete popup
     };
     const handleLineClick = (idx) => {
         // Show the cross for deleting the line
         setDeleteLineIndex(idx);
     };
     const handleDeleteLine = () => {
-      if (lineToDelete) {
-          const { id, annotationId } = lineToDelete;
+        if (lineToDelete) {
+            const { id, annotationId } = lineToDelete;
 
-          setAllVideoAnnotations(prev => {
-              const newAnnotations = [...prev];
-              const annotation = newAnnotations.find(ann => ann.id === annotationId);
-              if (annotation) {
-                  const frame = annotation.frames.find(f => f.frame === currentFrame);
-                  if (frame) {
-                      // Remove the line from the lines array
-                      const updatedLines = frame.lines.filter(line => line.id !== id);
-                      frame.lines = updatedLines;
-                  }
-              }
+            setAllVideoAnnotations(prev => {
+                const newAnnotations = [...prev];
+                const annotation = newAnnotations.find(ann => ann.id === annotationId);
+                if (annotation) {
+                    const frame = annotation.frames.find(f => f.frame === currentFrame);
+                    if (frame) {
+                        // Remove the line from the lines array
+                        const updatedLines = frame.lines.filter(line => line.id !== id);
+                        frame.lines = updatedLines;
+                    }
+                }
 
-              return newAnnotations;
-          });
-          setDeleteLineIndex(null);
-          setShowLinePopup(false);
-          // Update last edited frame
-          // setLastEditedFrameContext(currentFrame);
-      }
-      setShowLinePopup(false);
-  };
+                return newAnnotations;
+            });
+            setDeleteLineIndex(null);
+            setShowLinePopup(false);
+            // Update last edited frame
+            // setLastEditedFrameContext(currentFrame);
+        }
+        setShowLinePopup(false);
+    };
 
     // const handleClickSaveAnnotations = () => {
     //     // setLastSavedKeypoints(currentKeypoints);
@@ -380,7 +380,7 @@ const VideoAnnotations = () => {
     // Function to delete all dots selected by the bounding box
     const handleDeleteAllSelectedDots = () => {
         // Logic to remove the dots from the current annotations
-        console.log("ppp",{boundingBoxSelectedDots})
+        console.log("ppp", { boundingBoxSelectedDots })
         // const updatedAnnotations = currentAnnotations.map(annotation => ({
         //     ...annotation,
         //     frames: annotation.frames.map(frameObj => ({
@@ -401,17 +401,17 @@ const VideoAnnotations = () => {
                 const updatedFrames = annotation.frames.map(frameObj => {
                     // Only operate on the current frame
                     if (frameObj.frame === currentFrame) {
-                        const updatedDots = frameObj.dots.filter(dot => 
+                        const updatedDots = frameObj.dots.filter(dot =>
                             !boundingBoxSelectedDots.some(selectedDot => selectedDot.id === dot.id)  // Compare by dot ID
                         );
-                        
+
                         // Filter out lines connected to deleted dots
-                        const updatedLines = frameObj.lines.filter(line => 
-                            !boundingBoxSelectedDots.some(selectedDot => 
+                        const updatedLines = frameObj.lines.filter(line =>
+                            !boundingBoxSelectedDots.some(selectedDot =>
                                 line.startDotId === selectedDot.id || line.endDotId === selectedDot.id
                             )
                         );
-    
+
                         return {
                             ...frameObj,
                             dots: updatedDots,
@@ -420,19 +420,19 @@ const VideoAnnotations = () => {
                     }
                     return frameObj; // Keep other frames unchanged
                 });
-    
+
                 // Remove frames that no longer have dots in the current frame
                 const filteredFrames = updatedFrames.filter(frame => frame.dots.length > 0 || frame.frame !== currentFrame);
-    
+
                 return filteredFrames.length > 0 ? {
                     ...annotation,
                     frames: filteredFrames
                 } : null; // Remove the annotation if all frames are empty
-            }).filter(annotation => annotation !== null); 
-    
+            }).filter(annotation => annotation !== null);
+
             return updatedAnnotations;
         });
-    
+
         // setAllVideoAnnotations(updatedAnnotations); 
         setBoundingBoxSelectedDots([]);
         setSelectedPoints([]);
@@ -440,13 +440,13 @@ const VideoAnnotations = () => {
     };
     // Function to detect if a dot is within the selection box
     const isDotInsideSelectionBox = (dot) => {
-      const { x, y, width, height } = selectionBox;
-      return (
-          dot.x >= x &&
-          dot.x <= x + width &&
-          dot.y >= y &&
-          dot.y <= y + height
-      );
+        const { x, y, width, height } = selectionBox;
+        return (
+            dot.x >= x &&
+            dot.x <= x + width &&
+            dot.y >= y &&
+            dot.y <= y + height
+        );
     };
     // Mouse down - start the selection box
     const handleMouseDown = (e) => {
@@ -470,21 +470,21 @@ const VideoAnnotations = () => {
     const handleMouseMove = (e) => {
         if (isSelecting && mouseDownTime !== null) {
             const elapsedTime = Date.now() - mouseDownTime;
-            if(elapsedTime > CLICK_THRESHOLD){
-            const stage = e.target.getStage();
-            const pointerPosition = stage.getPointerPosition();
-            const newBox = {
-                ...selectionBox,
-                width: pointerPosition.x - selectionBox.x,
-                height: pointerPosition.y - selectionBox.y,
-            };
-            setSelectionBox(newBox);
-            setIsDraggingSelectionBox(false)
-    
-            // Calculate selected dots based on the updated box
-            const selected = calculateSelectedDots(newBox);
-            setBoundingBoxSelectedDots(selected);
-        }
+            if (elapsedTime > CLICK_THRESHOLD) {
+                const stage = e.target.getStage();
+                const pointerPosition = stage.getPointerPosition();
+                const newBox = {
+                    ...selectionBox,
+                    width: pointerPosition.x - selectionBox.x,
+                    height: pointerPosition.y - selectionBox.y,
+                };
+                setSelectionBox(newBox);
+                setIsDraggingSelectionBox(false)
+
+                // Calculate selected dots based on the updated box
+                const selected = calculateSelectedDots(newBox);
+                setBoundingBoxSelectedDots(selected);
+            }
         }
     };
 
@@ -515,7 +515,7 @@ const VideoAnnotations = () => {
 
     // Helper to calculate which dots fall inside the selection box
     const calculateSelectedDots = (box) => {
-       // Normalize the selection box to ensure positive width and height
+        // Normalize the selection box to ensure positive width and height
         const normalizedBox = {
             x: Math.min(box.x, box.x + box.width),
             y: Math.min(box.y, box.y + box.height),
@@ -535,36 +535,36 @@ const VideoAnnotations = () => {
     };
     // Handle Ctrl key press
     const handleKeyDown = (e) => {
-      if (e.key === 'Control') {
-          setIsCtrlPressed(true);
-      }
+        if (e.key === 'Control') {
+            setIsCtrlPressed(true);
+        }
     };
 
     const handleKeyUp = (e) => {
-      if (e.key === 'Control') {
-          setIsCtrlPressed(false);
-      }
+        if (e.key === 'Control') {
+            setIsCtrlPressed(false);
+        }
     };
-     // Function to delete selected dots and corresponding lines
-     const deleteSelectedDotsAndLines = () => {
-      setAllVideoAnnotations(prevAnnotations => {
-          const newAnnotations = [...prevAnnotations];
-          newAnnotations.forEach(ann => {
-              ann.frames.forEach(frame => {
-                  // Remove selected dots
-                  frame.dots = frame.dots.filter(dot => !selectedDots.includes(dot));
+    // Function to delete selected dots and corresponding lines
+    const deleteSelectedDotsAndLines = () => {
+        setAllVideoAnnotations(prevAnnotations => {
+            const newAnnotations = [...prevAnnotations];
+            newAnnotations.forEach(ann => {
+                ann.frames.forEach(frame => {
+                    // Remove selected dots
+                    frame.dots = frame.dots.filter(dot => !selectedDots.includes(dot));
 
-                  // Remove lines connected to any of the deleted dots
-                  frame.lines = frame.lines.filter(line =>
-                      !selectedDots.find(dot => dot.id === line.startDotId || dot.id === line.endDotId)
-                  );
-              });
-          });
-          return newAnnotations;
-      });
+                    // Remove lines connected to any of the deleted dots
+                    frame.lines = frame.lines.filter(line =>
+                        !selectedDots.find(dot => dot.id === line.startDotId || dot.id === line.endDotId)
+                    );
+                });
+            });
+            return newAnnotations;
+        });
 
-      setSelectedDots([]); // Reset selection
-  };
+        setSelectedDots([]); // Reset selection
+    };
     // const saveKeypointsForFrame = () => {
     //     const frameKey = Math.floor(currentTime);
     //     setKeypointsPerFrame({
@@ -606,45 +606,45 @@ const VideoAnnotations = () => {
         // event.evt.preventDefault();
 
         // If two dots are already selected, clear the selection
-        console.log({annotationId})
+        console.log({ annotationId })
         if (selectedPoints.length === 2) {
             setSelectedPoints([clickedPoint]);
             setPreviousDot(null);  // Reset previous dot when new selection begins
         } else if (selectedPoints.length === 1 && selectedPoints[0] !== clickedPoint) {
-             // When two dots are selected, create a line
+            // When two dots are selected, create a line
             const newLine = {
-              id: generateUniqueId(),
-              startDotId: selectedPoints[0].id,
-              endDotId: clickedPoint.id,
-              color: '#000000',
-          };
+                id: generateUniqueId(),
+                startDotId: selectedPoints[0].id,
+                endDotId: clickedPoint.id,
+                color: '#000000',
+            };
 
-          // Update the `allVideoAnnotations` state to add the new line to the correct frame
-          setAllVideoAnnotations(prevAnnotations => {
-              const newAnnotations = prevAnnotations.map(ann => {
-                  if (ann.id === annotationId) {
-                      return {
-                          ...ann,
-                          frames: ann.frames.map(frame => {
-                              if (frame.frame === currentFrame) {
-                                  return {
-                                      ...frame,
-                                      lines: [...frame.lines, newLine]  // Add the new line to the frame's lines array
-                                  };
-                              }
-                              return frame;
-                          })
-                      };
-                  }
-                  return ann;
-              });
+            // Update the `allVideoAnnotations` state to add the new line to the correct frame
+            setAllVideoAnnotations(prevAnnotations => {
+                const newAnnotations = prevAnnotations.map(ann => {
+                    if (ann.id === annotationId) {
+                        return {
+                            ...ann,
+                            frames: ann.frames.map(frame => {
+                                if (frame.frame === currentFrame) {
+                                    return {
+                                        ...frame,
+                                        lines: [...frame.lines, newLine]  // Add the new line to the frame's lines array
+                                    };
+                                }
+                                return frame;
+                            })
+                        };
+                    }
+                    return ann;
+                });
 
-              return newAnnotations;
-          });
+                return newAnnotations;
+            });
 
-          setPreviousDot(selectedPoints[0]);  // Mark the first dot as the previous one
-          setSelectedPoints([clickedPoint]);  // Select the second dot
-          // setLastEditedFrameContext(currentFrame);  // Set the last edited frame context
+            setPreviousDot(selectedPoints[0]);  // Mark the first dot as the previous one
+            setSelectedPoints([clickedPoint]);  // Select the second dot
+            // setLastEditedFrameContext(currentFrame);  // Set the last edited frame context
         } else {
             // Select the first dot
             setSelectedPoints([clickedPoint]);
@@ -653,34 +653,34 @@ const VideoAnnotations = () => {
     };
 
     const handleDotDragMove = (e, annotationId, dotId) => {
-      const { x, y } = e.target.position();
+        const { x, y } = e.target.position();
 
-      setAllVideoAnnotations(prev => {
-          const newAnnotations = prev.map(ann => {
-              if (ann.id === annotationId) {
-                  return {
-                      ...ann,
-                      frames: ann.frames.map(frame => {
-                          if (frame.frame === currentFrame) {
-                              return {
-                                  ...frame,
-                                  dots: frame.dots.map(dot => {
-                                      if (dot.id === dotId) {
-                                          return { ...dot, x, y }; // Update dot position
-                                      }
-                                      return dot;
-                                  }),
-                              };
-                          }
-                          return frame;
-                      }),
-                  };
-              }
-              return ann;
-          });
-          return newAnnotations;
-      });
-  };
+        setAllVideoAnnotations(prev => {
+            const newAnnotations = prev.map(ann => {
+                if (ann.id === annotationId) {
+                    return {
+                        ...ann,
+                        frames: ann.frames.map(frame => {
+                            if (frame.frame === currentFrame) {
+                                return {
+                                    ...frame,
+                                    dots: frame.dots.map(dot => {
+                                        if (dot.id === dotId) {
+                                            return { ...dot, x, y }; // Update dot position
+                                        }
+                                        return dot;
+                                    }),
+                                };
+                            }
+                            return frame;
+                        }),
+                    };
+                }
+                return ann;
+            });
+            return newAnnotations;
+        });
+    };
     const handleBoundingBoxRightClick = (e) => {
         e.evt.preventDefault(); // Prevent default context menu
         // Set position for the popup
@@ -689,49 +689,49 @@ const VideoAnnotations = () => {
         setShowDeleteAllPopup(true);  // Show popup for deleting all dots
     };
     const handleDotRightClick = (e, dotId, annotationId) => {
-      e.evt.preventDefault(); // Prevent default context menu
+        e.evt.preventDefault(); // Prevent default context menu
 
-      // Set position for the popup
-      const { clientX, clientY } = e.evt;
-      setPopupPosition({ x: clientX, y: clientY });
-      setDotToDelete({ id: dotId, annotationId });
-      setShowPopup(true);
-  };
-  const handleDeleteDot = () => {
-    if (dotToDelete) {
-        const { id, annotationId } = dotToDelete;
+        // Set position for the popup
+        const { clientX, clientY } = e.evt;
+        setPopupPosition({ x: clientX, y: clientY });
+        setDotToDelete({ id: dotId, annotationId });
+        setShowPopup(true);
+    };
+    const handleDeleteDot = () => {
+        if (dotToDelete) {
+            const { id, annotationId } = dotToDelete;
 
-        setAllVideoAnnotations(prev => {
-            const newAnnotations = [...prev];
+            setAllVideoAnnotations(prev => {
+                const newAnnotations = [...prev];
 
-            const annotation = newAnnotations.find(ann => ann.id === annotationId);
-            if (annotation) {
-                // Find the frame for the current frame
-                const frame = annotation.frames.find(f => f.frame === currentFrame);
-                if (frame) {
-                    // Remove the dot from the dots array
-                    const updatedDots = frame.dots.filter(dot => dot.id !== id);
-                    frame.dots = updatedDots;
+                const annotation = newAnnotations.find(ann => ann.id === annotationId);
+                if (annotation) {
+                    // Find the frame for the current frame
+                    const frame = annotation.frames.find(f => f.frame === currentFrame);
+                    if (frame) {
+                        // Remove the dot from the dots array
+                        const updatedDots = frame.dots.filter(dot => dot.id !== id);
+                        frame.dots = updatedDots;
 
-                    // Remove corresponding lines that use this dot
-                    frame.lines = frame.lines.filter(line => line.startDotId !== id && line.endDotId !== id);
+                        // Remove corresponding lines that use this dot
+                        frame.lines = frame.lines.filter(line => line.startDotId !== id && line.endDotId !== id);
 
-                    // if dots array is empty, remove the annotation also
-                    if (frame.dots.length === 0) {
-                        newAnnotations.splice(newAnnotations.findIndex(ann => ann.id === annotationId), 1);
+                        // if dots array is empty, remove the annotation also
+                        if (frame.dots.length === 0) {
+                            newAnnotations.splice(newAnnotations.findIndex(ann => ann.id === annotationId), 1);
+                        }
                     }
                 }
-            }
 
-            return newAnnotations;
-        });
+                return newAnnotations;
+            });
 
-        // Reset the state
-        setDotToDelete(null);
-        setShowPopup(false);
-        setSelectedPoints([]);
-        setPreviousDot(null);
-    }
+            // Reset the state
+            setDotToDelete(null);
+            setShowPopup(false);
+            setSelectedPoints([]);
+            setPreviousDot(null);
+        }
     };
 
     const handleRightClickOnScreen = (e) => {
@@ -740,7 +740,7 @@ const VideoAnnotations = () => {
         if (evt && evt.preventDefault) {
             evt.preventDefault();  // Prevent the default context menu
         }
-        else{
+        else {
             e.preventDefault();
         }
         // Check if the event is from the canvas stage
@@ -751,15 +751,15 @@ const VideoAnnotations = () => {
             return;
         }
         const point = stage.getPointerPosition();
-        console.log({point})
+        console.log({ point })
         if (!point) {
             resetSelections();
             return;
         }
-         // Check if the right-click position is inside any selected dots
+        // Check if the right-click position is inside any selected dots
         const isInsideSelectedDots = boundingBoxSelectedDots.some(dot => {
             const distance = Math.sqrt(Math.pow(dot.x - point.x, 2) + Math.pow(dot.y - point.y, 2));
-            return distance < 8; 
+            return distance < 8;
         });
         if (!isInsideSelectedDots) {
             resetSelections();
@@ -767,9 +767,9 @@ const VideoAnnotations = () => {
         } else {
             resetSelections()
         }
-        
+
     };
-    const resetSelections = ()=>{
+    const resetSelections = () => {
         // setCurrentKeypoints([]); // Reset keypoints
         // setCurrentLines([]); // Reset lines
         setSelectedPoints([]); // Reset selected points
@@ -779,14 +779,14 @@ const VideoAnnotations = () => {
         // setBoundingBoxSelectedDots([])
     }
     const onDragDot = (event: any, dotId: string, annotationId: string) => {
-        const {x, y} = event.target.position()
+        const { x, y } = event.target.position()
         setAllVideoAnnotations(prev => {
             const newAnnotations = [...prev];
 
             newAnnotations.find(a => a.id === annotationId)?.frames?.map(frameObj => {
-                if(frameObj.frame === currentFrame){
+                if (frameObj.frame === currentFrame) {
                     const dot = frameObj.dots.find(d => d.id === dotId)
-                    if(dot){
+                    if (dot) {
                         dot.x = x
                         dot.y = y
                     }
@@ -820,7 +820,7 @@ const VideoAnnotations = () => {
         const frame = parseInt(event.target.value)
         setCurrentFrame(frame)
 
-        
+
         const time = frame / fps;
         console.log(">>>>> new frame: ", frame)
         console.log(">>>>> new time: ", time)
@@ -847,7 +847,7 @@ const VideoAnnotations = () => {
 
     const onDeleteaAnnotation = (annId: string) => {
         setAllVideoAnnotations(prevAnnotations => {
-            const newAnnotations = prevAnnotations.filter(ann => ann.id!== annId);
+            const newAnnotations = prevAnnotations.filter(ann => ann.id !== annId);
             return newAnnotations;
         })
     }
@@ -866,8 +866,8 @@ const VideoAnnotations = () => {
                     onDuration={(d) => setDuration(d)}
                     style={{ position: 'absolute', top: 0, left: 0 }}
                     progressInterval={10}
-                    // playbackRate={0.4}
-                    
+                // playbackRate={0.4}
+
                 />
 
                 {/* Konva Stage for keypoints */}
@@ -888,38 +888,38 @@ const VideoAnnotations = () => {
                         {
                             currentAnnotations.map((ann, index) => {
                                 return <React.Fragment key={`ann-${index}`}>
-                                {
-                                ann.frames.filter(frame => frame.frame === currentFrame).map(obj => {
-                                    return <React.Fragment key={index}>
-                                        {
-                                            obj.dots.map((point, idx) => {
-                                                return <React.Fragment key={idx}>
-                                                <Circle
-                                                    key={`circle-${idx}`}
-                                                    x={point.x}
-                                                    y={point.y}
-                                                    radius={3}
-                                                    fill={
-                                                        boundingBoxSelectedDots.includes(point)? 'blue':
-                                                        selectedPoints.includes(point) ? 'green' :     // Selected dot is green
-                                                            previousDot === point ? 'yellow' :             // Previous dot is yellow
-                                                                hoveredDotId === point.id ? 'blue' :             // Hovered dot is blue
-                                                                    'red'                                          // Default dot color is red
-                                                    }
-                                                    draggable
-                                                    onDragMove={(e) => handleDotDragMove(e, ann.id, point.id)}  // Adjust dot position
-                                                    onClick={(e) => handleDotClick(e, point.id, ann.id)}
-                                                    onMouseEnter={() => setHoveredDotId(point.id)}
-                                                    onMouseLeave={() => setHoveredDotId(null)}
-                                                    onContextMenu={(e) => 
-                                                        boundingBoxSelectedDots.includes(point) 
-                                                        ? handleBoundingBoxRightClick(e) 
-                                                        : handleDotRightClick(e, point.id, ann.id)
-                                                    }
-                                                    dashEnabled={true}
-                                                />
-                                                 {/* Konva Label for each circle */}
-                                                    {/* <Label x={point.x + 5} y={point.y - 10} 
+                                    {
+                                        ann.frames.filter(frame => frame.frame === currentFrame).map(obj => {
+                                            return <React.Fragment key={index}>
+                                                {
+                                                    obj.dots.map((point, idx) => {
+                                                        return <React.Fragment key={idx}>
+                                                            <Circle
+                                                                key={`circle-${idx}`}
+                                                                x={point.x}
+                                                                y={point.y}
+                                                                radius={3}
+                                                                fill={
+                                                                    boundingBoxSelectedDots.includes(point) ? 'blue' :
+                                                                        selectedPoints.includes(point) ? 'green' :     // Selected dot is green
+                                                                            previousDot === point ? 'yellow' :             // Previous dot is yellow
+                                                                                hoveredDotId === point.id ? 'blue' :             // Hovered dot is blue
+                                                                                    'red'                                          // Default dot color is red
+                                                                }
+                                                                draggable
+                                                                onDragMove={(e) => handleDotDragMove(e, ann.id, point.id)}  // Adjust dot position
+                                                                onClick={(e) => handleDotClick(e, point.id, ann.id)}
+                                                                onMouseEnter={() => setHoveredDotId(point.id)}
+                                                                onMouseLeave={() => setHoveredDotId(null)}
+                                                                onContextMenu={(e) =>
+                                                                    boundingBoxSelectedDots.includes(point)
+                                                                        ? handleBoundingBoxRightClick(e)
+                                                                        : handleDotRightClick(e, point.id, ann.id)
+                                                                }
+                                                                dashEnabled={true}
+                                                            />
+                                                            {/* Konva Label for each circle */}
+                                                            {/* <Label x={point.x + 5} y={point.y - 10} 
                                                     // offsetX={point.x} offsetY={point.y}
                                                     > 
                                                         <Tag
@@ -942,88 +942,88 @@ const VideoAnnotations = () => {
                                                             name='label'
                                                         />
                                                     </Label> */}
-                                                    </React.Fragment>
-                                                })
-                                        }
-                                        {
-                                          obj.lines.map((line, idx) => {
-                                            const annotation = allVideoAnnotations.find(Anno => Anno.id === ann.id); // Correct this to use the annotation ID
-                                          const startDot = allVideoAnnotations.find(Anno => Anno.id === ann.id)?.frames?.find(obj => obj.frame === currentFrame)?.dots?.find(d => d.id === line.startDotId);
-                                          const endDot = allVideoAnnotations.find(Anno => Anno.id === ann.id)?.frames?.find(obj => obj.frame === currentFrame)?.dots?.find(d => d.id === line.endDotId);
-                                        //   console.log({startDot,endDot,annotation,allVideoAnnotations})
-                                          if (startDot && endDot) {
-                                              return (
-                                                  <Line
-                                                      key={line.id}
-                                                      points={[startDot.x, startDot.y, endDot.x, endDot.y]}
-                                                      stroke={hoveredLineIndex === line.id ? 'grey' : 'black'}
-                                                      strokeWidth={hoveredLineIndex === line.id ? 4 : 2}
-                                                      onMouseEnter={() => setHoveredLineIndex(line.id)}
-                                                      onMouseLeave={() => setHoveredLineIndex(null)}
-                                                      onClick={() => handleLineClick(line.id)}
-                                                      onContextMenu={(e) => handleLineRightClick(e, line.id, ann.id)}
-                                                  />
-                                              );
-                                          }
-                                          return null;
-                                          })
-                                        }
-                                            {/* Display a cross symbol on hover to delete the line */ }
-                                            {
-                                                // deleteLineIndex !== null && deleteLineIndex < currentLines.length && (
-                                                //     <div onClick={handleDeleteLine}>
-                                                //         <Text
-                                                //             text="X"
-                                                //             fontSize={20}
-                                                //             fill="red"
-                                                //             x={(currentLines[deleteLineIndex].start.x + currentLines[deleteLineIndex].end.x) / 2}
-                                                //             y={(currentLines[deleteLineIndex].start.y + currentLines[deleteLineIndex].end.y) / 2}
-                                                //             draggable
-                                                //         />
-                                                //     </div>
-                                                // )
-                                            }
-                                    </React.Fragment>
+                                                        </React.Fragment>
+                                                    })
+                                                }
+                                                {
+                                                    obj.lines.map((line, idx) => {
+                                                        const annotation = allVideoAnnotations.find(Anno => Anno.id === ann.id); // Correct this to use the annotation ID
+                                                        const startDot = allVideoAnnotations.find(Anno => Anno.id === ann.id)?.frames?.find(obj => obj.frame === currentFrame)?.dots?.find(d => d.id === line.startDotId);
+                                                        const endDot = allVideoAnnotations.find(Anno => Anno.id === ann.id)?.frames?.find(obj => obj.frame === currentFrame)?.dots?.find(d => d.id === line.endDotId);
+                                                        //   console.log({startDot,endDot,annotation,allVideoAnnotations})
+                                                        if (startDot && endDot) {
+                                                            return (
+                                                                <Line
+                                                                    key={line.id}
+                                                                    points={[startDot.x, startDot.y, endDot.x, endDot.y]}
+                                                                    stroke={hoveredLineIndex === line.id ? 'grey' : 'black'}
+                                                                    strokeWidth={hoveredLineIndex === line.id ? 4 : 2}
+                                                                    onMouseEnter={() => setHoveredLineIndex(line.id)}
+                                                                    onMouseLeave={() => setHoveredLineIndex(null)}
+                                                                    onClick={() => handleLineClick(line.id)}
+                                                                    onContextMenu={(e) => handleLineRightClick(e, line.id, ann.id)}
+                                                                />
+                                                            );
+                                                        }
+                                                        return null;
+                                                    })
+                                                }
+                                                {/* Display a cross symbol on hover to delete the line */}
+                                                {
+                                                    // deleteLineIndex !== null && deleteLineIndex < currentLines.length && (
+                                                    //     <div onClick={handleDeleteLine}>
+                                                    //         <Text
+                                                    //             text="X"
+                                                    //             fontSize={20}
+                                                    //             fill="red"
+                                                    //             x={(currentLines[deleteLineIndex].start.x + currentLines[deleteLineIndex].end.x) / 2}
+                                                    //             y={(currentLines[deleteLineIndex].start.y + currentLines[deleteLineIndex].end.y) / 2}
+                                                    //             draggable
+                                                    //         />
+                                                    //     </div>
+                                                    // )
+                                                }
+                                            </React.Fragment>
 
-                                })
-                            }
-                        
-                        {isSelecting && (
-                        <Rect
-                            x={selectionBox.x}
-                            y={selectionBox.y}
-                            width={selectionBox.width}
-                            height={selectionBox.height}
-                            fill="rgba(0, 0, 255, 0.3)" // Blue transparent box
-                            stroke="blue"
-                            strokeWidth={1}
-                        />
-                        )}
-                        {
-                                    <Label hid x={ann.frames.find(obj => obj.frame === currentFrame)?.dots?.at(0)?.x} y={ann.frames.find(obj => obj.frame === currentFrame)?.dots?.at(0)?.y}
-                                    // offsetX={point.x} offsetY={point.y}
-                                    visible={ann.label !== ""}
-                                    > 
-                                        <Tag
-                                            fill="white"
-                                            pointerDirection="down"
-                                            pointerWidth={10}
-                                            pointerHeight={10}
-                                            lineJoin="round"
-                                            shadowColor="black"
-                                            shadowBlur={10}
-                                            shadowOffsetX={10}
-                                            shadowOffsetY={10}
-                                            shadowOpacity={0.5}
+                                        })
+                                    }
+
+                                    {isSelecting && (
+                                        <Rect
+                                            x={selectionBox.x}
+                                            y={selectionBox.y}
+                                            width={selectionBox.width}
+                                            height={selectionBox.height}
+                                            fill="rgba(0, 0, 255, 0.3)" // Blue transparent box
+                                            stroke="blue"
+                                            strokeWidth={1}
                                         />
-                                        <Text
-                                            text={ann.label}  // Customize the label text
-                                            fontSize={12}
-                                            fill="black"
-                                            padding={5}
-                                        />
-                                    </Label>
-                                }
+                                    )}
+                                    {
+                                        <Label hid x={ann.frames.find(obj => obj.frame === currentFrame)?.dots?.at(0)?.x} y={ann.frames.find(obj => obj.frame === currentFrame)?.dots?.at(0)?.y}
+                                            // offsetX={point.x} offsetY={point.y}
+                                            visible={ann.label !== ""}
+                                        >
+                                            <Tag
+                                                fill="white"
+                                                pointerDirection="down"
+                                                pointerWidth={10}
+                                                pointerHeight={10}
+                                                lineJoin="round"
+                                                shadowColor="black"
+                                                shadowBlur={10}
+                                                shadowOffsetX={10}
+                                                shadowOffsetY={10}
+                                                shadowOpacity={0.5}
+                                            />
+                                            <Text
+                                                text={ann.label}  // Customize the label text
+                                                fontSize={12}
+                                                fill="black"
+                                                padding={5}
+                                            />
+                                        </Label>
+                                    }
                                 </React.Fragment>
                             })
                         }
@@ -1040,65 +1040,65 @@ const VideoAnnotations = () => {
                         onClose={() => setShowPopup(false)}
                     />
                 )}
-                </div>
-                {/* Delete Popup for Line */}
-                {showLinePopup && (
-                    <DeletePopup
-                        x={popupLinePosition.x}
-                        y={popupLinePosition.y}
-                        onDelete={handleDeleteLine}
-                        scenario="deleteSingleLine"
-                        onClose={() => setShowLinePopup(false)}
-                    />
-                )}
-                {/* Delete Popup for selected dots */}
-                {showDeleteAllPopup&& (
-                    <DeletePopup
-                        x={popupPosition.x}
-                        y={popupPosition.y}
-                        onDelete={handleDeleteAllSelectedDots}
-                        scenario="deletAllDots"
-                        onClose={() => setShowDeleteAllPopup(false)}
-                    />
-                )}
+            </div>
+            {/* Delete Popup for Line */}
+            {showLinePopup && (
+                <DeletePopup
+                    x={popupLinePosition.x}
+                    y={popupLinePosition.y}
+                    onDelete={handleDeleteLine}
+                    scenario="deleteSingleLine"
+                    onClose={() => setShowLinePopup(false)}
+                />
+            )}
+            {/* Delete Popup for selected dots */}
+            {showDeleteAllPopup && (
+                <DeletePopup
+                    x={popupPosition.x}
+                    y={popupPosition.y}
+                    onDelete={handleDeleteAllSelectedDots}
+                    scenario="deletAllDots"
+                    onClose={() => setShowDeleteAllPopup(false)}
+                />
+            )}
             {/* Custom Video Controls */}
             <div style={{ marginTop: 12, backgroundColor: 'rgba(0,0,0,0.5)', padding: '5px', borderRadius: '5px', width: '800px' }}>
-                    <button onClick={handlePlayPause}>
-                        {isPlaying ? 'Pause' : 'Play'}
-                    </button>
-                    <input
-                        type="range"
-                        min="0"
-                        max={duration}
-                        step="0.01"
-                        value={currentTime}
-                        onChange={handleSeek}
-                        style={{ width: '400px', margin: '0 10px' }}
-                    />
-                    <span style={{ color: '#fff' }}>
-                        {formatTime(currentTime)} / {formatTime(duration)}
-                    </span>
-                </div>
+                <button onClick={handlePlayPause}>
+                    {isPlaying ? 'Pause' : 'Play'}
+                </button>
+                <input
+                    type="range"
+                    min="0"
+                    max={duration}
+                    step="0.01"
+                    value={currentTime}
+                    onChange={handleSeek}
+                    style={{ width: '400px', margin: '0 10px' }}
+                />
+                <span style={{ color: '#fff' }}>
+                    {formatTime(currentTime)} / {formatTime(duration)}
+                </span>
+            </div>
             {/* <div style={{ bottom: 0 }}>
                 current time: {currentTime}
                 <br/>
                 total duration: {duration}
             </div> */}
-            <div style={{display: 'flex', padding: '1rem', marginTop: '1rem'}}>
+            <div style={{ display: 'flex', padding: '1rem', marginTop: '1rem' }}>
                 Current Frame: &nbsp;
                 <input type='number' min={1} max={totalFrames} value={currentFrame} onChange={(e) => onChangeFrameNumber(e)} />
-                <button onClick={handleLoadPrevAnnotations} style={{marginLeft: '12px'}}>Populate last annotations</button>
+                <button onClick={handleLoadPrevAnnotations} style={{ marginLeft: '12px' }}>Populate last annotations</button>
             </div>
-            <div style={{padding: '1rem'}} >
+            <div style={{ padding: '1rem' }} >
                 Annotations in current frame:
                 {
                     allVideoAnnotations.filter(ann => ann.frames.some(frameObj => frameObj.frame === currentFrame)).map((annotation) => {
                         return (
-                            <Card key={annotation.id} style={{width: '400px', padding: '2rem', margin: '4px', display: 'flex'}}>
-                                <TextField label="label" value={annotation.label} style={{minHeight: '1rem'}} onChange={(e) => onChangeAnnLabel(e.target.value, annotation.id)} />
-                                    <IconButton style={{marginLeft: 'auto'}} onClick={() => onDeleteaAnnotation(annotation.id)}>
-                                        <DeleteIcon />
-                                    </IconButton>
+                            <Card key={annotation.id} style={{ width: '400px', padding: '2rem', margin: '4px', display: 'flex' }}>
+                                <TextField label="label" value={annotation.label} style={{ minHeight: '1rem' }} onChange={(e) => onChangeAnnLabel(e.target.value, annotation.id)} />
+                                <IconButton style={{ marginLeft: 'auto' }} onClick={() => onDeleteaAnnotation(annotation.id)}>
+                                    <DeleteIcon />
+                                </IconButton>
                             </Card>
                         )
                     })

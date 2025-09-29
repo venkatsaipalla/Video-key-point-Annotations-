@@ -12,70 +12,34 @@ import {
 } from "react-konva";
 
 import ReactPlayer from "react-player";
-import dummyVideo from "./dummy-walking_2.mp4";
+import dummyVideo from "./dummy-walking.mp4";
 import { generateUniqueId } from "../services/idHelperService.ts";
 import { DUMMY_ANNOTATIONS } from "./dummyData.js";
 // import { Card, IconButton, Input, Switch, TextField } from "@material-ui/core";
 // import { Delete } from "@material-ui/icons";
-import { Card, IconButton, Input, Switch, TextField } from '@mui/material';
+import { Card, IconButton, TextField, Button } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import DeletePopup from './DeletePopup.tsx';
+import { Annotation } from '../types/annotation.ts';
+import { secondsToFrame, frameToSeconds } from '../utils/time.ts';
+import { isPointNearDot, normalizeSelectionBox, isDotInsideBox } from '../utils/geometry.ts';
+import { removeLineFromFrame, removeDotFromFrame } from '../utils/annotations.ts';
+import { annotationsToDotsCsv, annotationsToLinesCsv, downloadCsv } from '../utils/csv.ts';
+import { SKELETON_TEMPLATES, applySkeletonTemplate, SkeletonTemplate } from '../utils/skeletonTemplates.ts';
+import { UndoRedoManager } from '../utils/undoRedo.ts';
+import { detectEdges, DEFAULT_EDGE_OPTIONS, EdgeDetectionOptions } from '../utils/edgeDetection.ts';
+import { detectEdgesWithYolo } from '../utils/yolo.ts';
 
 const DEFAULT_FRAME_RATE = 15;
 
-interface IDot {
-  id: string;
-  x: number;
-  y: number;
-  color: string;
-}
-
-interface ILine {
-  id: string;
-  startDotId: number;
-  endDotId: number;
-  color: string;
-}
-interface IAnnotation {
-  id: string;
-  label: string;
-  frames: Array<{
-    frame: number;
-    // timeInMs: number;
-    dots: Array<IDot>;
-    lines: Array<ILine>;
-  }>;
-}
-const DeletePopup = ({ x, y, onDelete, onClose, scenario }) => {
-  return (
-    <div
-      style={{
-        position: "absolute",
-        left: x,
-        top: y,
-        backgroundColor: "white",
-        border: "1px solid black",
-        padding: "10px",
-        zIndex: 10,
-        borderRadius: "5px",
-      }}
-    >
-      <p>
-        {scenario === "deleteSingleLine"
-          ? "Delete Line?"
-          : scenario === "deleteSingledot"
-          ? "Delete dot?"
-          : scenario === "deletAllDots" && "Delete all selected dots?"}
-      </p>
-      <button onClick={onDelete}>Delete</button>
-      <button onClick={onClose}>Cancel</button>
-    </div>
-  );
-};
-
 const VideoAnnotations2 = () => {
   const [allVideoAnnotations, setAllVideoAnnotations] =
-    useState<Array<IAnnotation>>(DUMMY_ANNOTATIONS);
+    useState<Array<Annotation>>(DUMMY_ANNOTATIONS);
   const [fps, setFps] = useState<number>(DEFAULT_FRAME_RATE);
+  const [videoUrl, setVideoUrl] = useState<string>(dummyVideo);
+  const [labelVisibility, setLabelVisibility] = useState<Record<string, boolean>>({});
   const [keypointsPerFrame, setKeypointsPerFrame] = useState({}); // Store keypoints per frame
   // const [currentKeypoints, setCurrentKeypoints] = useState([]);    // Keypoints for current frame
   // const [lastEditedFrameContext, setLastEditedFrameContext] = useState<{
@@ -121,10 +85,25 @@ const VideoAnnotations2 = () => {
   const [mouseDownPosition, setMouseDownPosition] = useState({ x: 0, y: 0 });
   const [mouseDownTime, setMouseDownTime] = useState(null);
   const CLICK_THRESHOLD = 300;
+  // Accessibility controls
+  const [dotRadius, setDotRadius] = useState<number>(3);
+  const [lineStrokeWidth, setLineStrokeWidth] = useState<number>(2);
+  // Skeleton template state
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
+  // Undo/Redo state
+  const [undoRedoManager] = useState(() => new UndoRedoManager());
+  const [undoRedoInfo, setUndoRedoInfo] = useState({ canUndo: false, canRedo: false, currentAction: 'Initial state', totalStates: 1 });
+  // Edge detection state
+  const [edgeOptions, setEdgeOptions] = useState<EdgeDetectionOptions>(DEFAULT_EDGE_OPTIONS);
+  const [isDetectingEdges, setIsDetectingEdges] = useState(false);
+  const [showDebugInfo, setShowDebugInfo] = useState(false);
+  const [autoDetectMode, setAutoDetectMode] = useState<'full' | 'selection'>('full');
+  const [autoDetectSelection, setAutoDetectSelection] = useState<{x: number, y: number, width: number, height: number} | null>(null);
+  const [yoloAvailable, setYoloAvailable] = useState<boolean>(true);
   console.log({ allVideoAnnotations });
   //set current frame number on time change
   useEffect(() => {
-    const calculatedFrame = Math.round(currentTime * fps);
+    const calculatedFrame = secondsToFrame(currentTime, fps);
     if (calculatedFrame !== currentFrame) {
       setCurrentFrame(calculatedFrame);
       resetSelections();
@@ -133,6 +112,215 @@ const VideoAnnotations2 = () => {
   }, [currentTime, fps]);
 
   console.log("testing~allVideoAnnotations", allVideoAnnotations);
+
+  const handleUploadVideo = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    setVideoUrl(url);
+    setCurrentTime(0);
+    setCurrentFrame(1);
+    setIsPlaying(false);
+  };
+
+  const handleDownloadDotsCsv = () => {
+    const csv = annotationsToDotsCsv(allVideoAnnotations, fps);
+    downloadCsv('annotations_dots.csv', csv);
+  };
+
+  const handleDownloadLinesCsv = () => {
+    const csv = annotationsToLinesCsv(allVideoAnnotations, fps);
+    downloadCsv('annotations_lines.csv', csv);
+  };
+
+  const handleApplySkeletonTemplate = () => {
+    if (!selectedTemplate) return;
+    
+    const template = SKELETON_TEMPLATES.find(t => t.id === selectedTemplate);
+    if (!template) return;
+
+    // Save current state before applying template
+    saveToHistory(`Apply ${template.name} template`);
+
+    // Apply template at center of video
+    const { dots, lines } = applySkeletonTemplate(template, 400, 225);
+    
+    setAllVideoAnnotations(prev => {
+      const newAnnotations = [...prev];
+      newAnnotations.push({
+        id: generateUniqueId(),
+        label: template.name,
+        frames: [{
+          frame: currentFrame,
+          dots,
+          lines,
+        }]
+      });
+      return newAnnotations;
+    });
+    
+    setSelectedTemplate(''); // Reset selection
+  };
+
+  const handleAutoDetectEdges = async () => {
+    if (!playerRef.current || isDetectingEdges) return;
+    
+    // Check if selection mode is enabled but no selection is made
+    if (autoDetectMode === 'selection' && !autoDetectSelection) {
+      alert('Please select an area first by dragging on the video, or switch to "Full Frame" mode.');
+      return;
+    }
+    
+    setIsDetectingEdges(true);
+    
+    try {
+      // Get the video element from ReactPlayer
+      const videoElement = playerRef.current.getInternalPlayer() as HTMLVideoElement;
+      if (!videoElement) {
+        console.error('Video element not found');
+        return;
+      }
+
+      // Save current state before auto-detection
+      saveToHistory(`Auto-detect edges (${autoDetectMode} mode)`);
+
+      let dots: any[] = [];
+      let lines: any[] = [];
+
+      // If YOLO is available and we're in full-frame mode, try YOLO-assisted detection first
+      if (yoloAvailable && autoDetectMode === 'full') {
+        try {
+          const res = await detectEdgesWithYolo(videoElement, edgeOptions, 800, 450, {
+            classFilter: ['person'],
+            maxDetections: 3,
+          });
+          if (res && (res.dots.length > 0 || res.lines.length > 0)) {
+            dots = res.dots;
+            lines = res.lines;
+          } else {
+            // Fallback to our Canny pipeline
+            const fallback = await detectEdges(
+              videoElement,
+              edgeOptions,
+              800,
+              450,
+              autoDetectMode === 'selection' ? autoDetectSelection : undefined
+            );
+            dots = fallback.dots;
+            lines = fallback.lines;
+          }
+        } catch (e) {
+          console.warn('YOLO detection failed or model missing, falling back to Canny.', e);
+          setYoloAvailable(false);
+          const fallback = await detectEdges(
+            videoElement,
+            edgeOptions,
+            800,
+            450,
+            autoDetectMode === 'selection' ? autoDetectSelection : undefined
+          );
+          dots = fallback.dots;
+          lines = fallback.lines;
+        }
+      } else {
+        // Selection mode or YOLO not available → use Canny
+        const fallback = await detectEdges(
+          videoElement,
+          edgeOptions,
+          800,
+          450,
+          autoDetectMode === 'selection' ? autoDetectSelection : undefined
+        );
+        dots = fallback.dots;
+        lines = fallback.lines;
+      }
+      
+      if (dots.length > 0 || lines.length > 0) {
+        setAllVideoAnnotations(prev => {
+          const newAnnotations = [...prev];
+          newAnnotations.push({
+            id: generateUniqueId(),
+            label: `Auto-detected outline (${dots.length} points, ${autoDetectMode} mode)`,
+            frames: [{
+              frame: currentFrame,
+              dots,
+              lines,
+            }]
+          });
+          return newAnnotations;
+        });
+        
+        if (showDebugInfo) {
+          console.log('Edge detection results:', {
+            mode: autoDetectMode,
+            boundingBox: autoDetectSelection,
+            dotsFound: dots.length,
+            linesFound: lines.length,
+            sensitivity: edgeOptions.threshold,
+            sampleDots: dots.slice(0, 10), // Show first 10 dots for debugging
+            sampleLines: lines.slice(0, 10), // Show first 10 lines for debugging
+            allDots: dots, // Full dots array for debugging
+            allLines: lines // Full lines array for debugging
+          });
+        }
+      } else {
+        alert('No edges detected. Try adjusting the sensitivity settings, selecting a different area, or ensure the video frame has clear edges.');
+      }
+    } catch (error) {
+      console.error('Error during edge detection:', error);
+      alert('Error during edge detection. Please try again.');
+    } finally {
+      setIsDetectingEdges(false);
+    }
+  };
+
+  // Undo/Redo helper functions
+  const saveToHistory = (action: string) => {
+    undoRedoManager.saveState(allVideoAnnotations, action);
+    setUndoRedoInfo(undoRedoManager.getHistoryInfo());
+  };
+
+  const handleUndo = () => {
+    const previousState = undoRedoManager.undo();
+    if (previousState) {
+      setAllVideoAnnotations(previousState);
+      setUndoRedoInfo(undoRedoManager.getHistoryInfo());
+    }
+  };
+
+  const handleRedo = () => {
+    const nextState = undoRedoManager.redo();
+    if (nextState) {
+      setAllVideoAnnotations(nextState);
+      setUndoRedoInfo(undoRedoManager.getHistoryInfo());
+    }
+  };
+
+  // Toggle label visibility for an annotation
+  const toggleLabelVisibility = (annotationId: string) => {
+    setLabelVisibility(prev => ({
+      ...prev,
+      [annotationId]: !prev[annotationId]
+    }));
+  };
+
+  // Keyboard event handler
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey) {
+        if (event.key === 'z' && !event.shiftKey) {
+          event.preventDefault();
+          handleUndo();
+        } else if ((event.key === 'y') || (event.key === 'z' && event.shiftKey)) {
+          event.preventDefault();
+          handleRedo();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [allVideoAnnotations]);
 
   // useEffect(() => {
   //     // Load annotations when video is loaded
@@ -170,6 +358,7 @@ const VideoAnnotations2 = () => {
   // };
 
   const handleLoadPrevAnnotations = () => {
+    saveToHistory('Load previous annotations');
     setAllVideoAnnotations((prev) => {
       const newAnnotations = [...prev];
       let lastFrameThatHaveAnnotations = currentFrame - 1;
@@ -278,6 +467,7 @@ const VideoAnnotations2 = () => {
       setDeleteLineIndex(null); // Reset delete line index
 
       // Delete all annotations for the current frame
+      saveToHistory('Delete all annotations in frame');
       setAllVideoAnnotations((prevAnnotations) => {
         return prevAnnotations
           .map((annotation) => {
@@ -302,11 +492,7 @@ const VideoAnnotations2 = () => {
     currentAnnotations.forEach((ann) => {
       ann.frames.forEach((timestamp) => {
         timestamp.dots.forEach((dot) => {
-          const distance = Math.sqrt(
-            Math.pow(dot.x - point.x, 2) + Math.pow(dot.y - point.y, 2)
-          );
-          if (distance < 8) {
-            // 8 is the radius threshold to detect the click on a dot
+          if (isPointNearDot(point.x, point.y, dot as any, Math.max(dotRadius + 2, 8))) {
             isClickOnDot = true;
             return;
           }
@@ -323,6 +509,7 @@ const VideoAnnotations2 = () => {
         color: "black",
       };
       console.log({ newDot, isClickOnDot });
+      saveToHistory('Add dot');
       setAllVideoAnnotations((prev) => {
         const newAnnotations = [...prev];
 
@@ -390,6 +577,7 @@ const VideoAnnotations2 = () => {
     if (lineToDelete) {
       const { id, annotationId } = lineToDelete;
 
+      saveToHistory('Delete line');
       setAllVideoAnnotations((prev) => {
         const newAnnotations = [...prev];
         const annotation = newAnnotations.find(
@@ -398,9 +586,7 @@ const VideoAnnotations2 = () => {
         if (annotation) {
           const frame = annotation.frames.find((f) => f.frame === currentFrame);
           if (frame) {
-            // Remove the line from the lines array
-            const updatedLines = frame.lines.filter((line) => line.id !== id);
-            frame.lines = updatedLines;
+            removeLineFromFrame(frame, id);
           }
         }
 
@@ -478,9 +664,9 @@ const VideoAnnotations2 = () => {
 
           return filteredFrames.length > 0
             ? {
-                ...annotation,
-                frames: filteredFrames,
-              }
+              ...annotation,
+              frames: filteredFrames,
+            }
             : null; // Remove the annotation if all frames are empty
         })
         .filter((annotation) => annotation !== null);
@@ -508,15 +694,28 @@ const VideoAnnotations2 = () => {
       const pointerPosition = stage.getPointerPosition();
       // Track mouse down time
       setMouseDownTime(Date.now());
-      // Start creating the selection box
-      setSelectionBox({
-        x: pointerPosition.x,
-        y: pointerPosition.y,
-        width: 0,
-        height: 0,
-      });
-      setIsSelecting(true);
-      setIsDraggingSelectionBox(false);
+      
+      // If in auto-detect selection mode, create selection for auto-detection
+      if (autoDetectMode === 'selection') {
+        setSelectionBox({
+          x: pointerPosition.x,
+          y: pointerPosition.y,
+          width: 0,
+          height: 0,
+        });
+        setIsSelecting(true);
+        setIsDraggingSelectionBox(false);
+      } else {
+        // Normal annotation mode - start creating the selection box
+        setSelectionBox({
+          x: pointerPosition.x,
+          y: pointerPosition.y,
+          width: 0,
+          height: 0,
+        });
+        setIsSelecting(true);
+        setIsDraggingSelectionBox(false);
+      }
     }
   };
   // Mouse move - update the selection box
@@ -552,10 +751,18 @@ const VideoAnnotations2 = () => {
       const pointerPos = stage.getPointerPosition();
       if (!pointerPos) return;
 
-      // Finalize and set the dots selected within the selection box
-      const finalSelectedDots = calculateSelectedDots(selectionBox);
-      setBoundingBoxSelectedDots(finalSelectedDots);
-      // setSelectedPoints(finalSelectedDots);  // Set selected points in global state
+      // If in auto-detect selection mode, set the selection for auto-detection
+      if (autoDetectMode === 'selection' && selectionBox) {
+        const normalizedBox = normalizeSelectionBox(selectionBox);
+        if (normalizedBox.width > 10 && normalizedBox.height > 10) { // Minimum size check
+          setAutoDetectSelection(normalizedBox);
+        }
+      } else {
+        // Normal annotation mode - finalize and set the dots selected within the selection box
+        const finalSelectedDots = calculateSelectedDots(selectionBox);
+        setBoundingBoxSelectedDots(finalSelectedDots);
+      }
+      
       // Reset the selection box to avoid visual glitches after selection
       setSelectionBox({
         x: 0,
@@ -568,28 +775,11 @@ const VideoAnnotations2 = () => {
 
   // Helper to calculate which dots fall inside the selection box
   const calculateSelectedDots = (box) => {
-    // Normalize the selection box to ensure positive width and height
-    const normalizedBox = {
-      x: Math.min(box.x, box.x + box.width),
-      y: Math.min(box.y, box.y + box.height),
-      width: Math.abs(box.width),
-      height: Math.abs(box.height),
-    };
-
+    const normalizedBox = normalizeSelectionBox(box);
     return currentAnnotations.flatMap((annotation) =>
       annotation.frames
         .filter((frame) => frame.frame === currentFrame)
-        .flatMap((obj) =>
-          obj.dots.filter((dot) => {
-            const insideX =
-              dot.x >= normalizedBox.x &&
-              dot.x <= normalizedBox.x + normalizedBox.width;
-            const insideY =
-              dot.y >= normalizedBox.y &&
-              dot.y <= normalizedBox.y + normalizedBox.height;
-            return insideX && insideY;
-          })
-        )
+        .flatMap((obj) => obj.dots.filter((dot) => isDotInsideBox(dot as any, normalizedBox)))
     );
   };
   // Handle Ctrl key press
@@ -606,6 +796,7 @@ const VideoAnnotations2 = () => {
   };
   // Function to delete selected dots and corresponding lines
   const deleteSelectedDotsAndLines = () => {
+    saveToHistory('Delete selected dots and lines');
     setAllVideoAnnotations((prevAnnotations) => {
       const newAnnotations = [...prevAnnotations];
       newAnnotations.forEach((ann) => {
@@ -655,6 +846,7 @@ const VideoAnnotations2 = () => {
   };
 
   const formatTime = (time) => {
+    // kept for UI, but we already have formatClock if needed
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60)
       .toString()
@@ -664,7 +856,7 @@ const VideoAnnotations2 = () => {
 
   const handleDotClick = (event, dotId, annotationId) => {
     const clickedPoint = (
-      currentAnnotations.find((ann) => ann.id === annotationId) as IAnnotation
+      currentAnnotations.find((ann) => ann.id === annotationId) as Annotation
     ).frames
       .find((timestamp) => timestamp.frame === currentFrame)
       ?.dots.find((d) => d.id === dotId);
@@ -689,6 +881,7 @@ const VideoAnnotations2 = () => {
       };
 
       // Update the `allVideoAnnotations` state to add the new line to the correct frame
+      saveToHistory('Add line');
       setAllVideoAnnotations((prevAnnotations) => {
         const newAnnotations = prevAnnotations.map((ann) => {
           if (ann.id === annotationId) {
@@ -770,6 +963,7 @@ const VideoAnnotations2 = () => {
     if (dotToDelete) {
       const { id, annotationId } = dotToDelete;
 
+      saveToHistory('Delete dot');
       setAllVideoAnnotations((prev) => {
         const newAnnotations = [...prev];
 
@@ -780,21 +974,10 @@ const VideoAnnotations2 = () => {
           // Find the frame for the current frame
           const frame = annotation.frames.find((f) => f.frame === currentFrame);
           if (frame) {
-            // Remove the dot from the dots array
-            const updatedDots = frame.dots.filter((dot) => dot.id !== id);
-            frame.dots = updatedDots;
-
-            // Remove corresponding lines that use this dot
-            frame.lines = frame.lines.filter(
-              (line) => line.startDotId !== id && line.endDotId !== id
-            );
-
-            // if dots array is empty, remove the annotation also
+            removeDotFromFrame(frame, id);
             if (frame.dots.length === 0) {
-              newAnnotations.splice(
-                newAnnotations.findIndex((ann) => ann.id === annotationId),
-                1
-              );
+              const idx = newAnnotations.findIndex((ann) => ann.id === annotationId);
+              if (idx !== -1) newAnnotations.splice(idx, 1);
             }
           }
         }
@@ -856,6 +1039,7 @@ const VideoAnnotations2 = () => {
   };
   const onDragDot = (event: any, dotId: string, annotationId: string) => {
     const { x, y } = event.target.position();
+    saveToHistory('Move dot');
     setAllVideoAnnotations((prev) => {
       const newAnnotations = [...prev];
 
@@ -898,7 +1082,7 @@ const VideoAnnotations2 = () => {
     const frame = parseInt(event.target.value);
     setCurrentFrame(frame);
 
-    const time = frame / fps;
+    const time = frameToSeconds(frame, fps);
     console.log(">>>>> new frame: ", frame);
     console.log(">>>>> new time: ", time);
     playerRef.current.seekTo(time, "seconds"); // Seek to the specified time
@@ -910,6 +1094,7 @@ const VideoAnnotations2 = () => {
   };
 
   const onChangeAnnLabel = (newValue: string, annId: string) => {
+    saveToHistory('Change annotation label');
     setAllVideoAnnotations((prevAnnotations) => {
       const newAnnotations = [...prevAnnotations];
 
@@ -923,6 +1108,7 @@ const VideoAnnotations2 = () => {
   };
 
   const onDeleteaAnnotation = (annId: string) => {
+    saveToHistory('Delete annotation');
     setAllVideoAnnotations((prevAnnotations) => {
       const newAnnotations = prevAnnotations.filter((ann) => ann.id !== annId);
       return newAnnotations;
@@ -933,14 +1119,16 @@ const VideoAnnotations2 = () => {
 
   return (
     <>
-      <div
-        style={{ position: "relative", width: "800px", height: "450px" }}
-        onContextMenu={handleRightClickOnScreen}
-      >
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        <div>
+          <div
+            style={{ position: "relative", width: "800px", height: "450px" }}
+            onContextMenu={handleRightClickOnScreen}
+          >
         {/* ReactPlayer Component */}
         <ReactPlayer
           ref={playerRef}
-          url={dummyVideo}
+          url={videoUrl}
           width="800px"
           height="450px"
           playing={isPlaying}
@@ -948,7 +1136,7 @@ const VideoAnnotations2 = () => {
           onDuration={(d) => setDuration(d)}
           style={{ position: "absolute", top: 0, left: 0 }}
           progressInterval={10}
-          // playbackRate={0.4}
+        // playbackRate={0.4}
         />
 
         {/* Konva Stage for keypoints */}
@@ -981,17 +1169,17 @@ const VideoAnnotations2 = () => {
                                   key={`circle-${idx}`}
                                   x={point.x}
                                   y={point.y}
-                                  radius={3}
+                                  radius={dotRadius}
                                   fill={
                                     boundingBoxSelectedDots.includes(point)
                                       ? "blue"
                                       : selectedPoints.includes(point)
-                                      ? "green" // Selected dot is green
-                                      : previousDot === point
-                                      ? "yellow" // Previous dot is yellow
-                                      : hoveredDotId === point.id
-                                      ? "blue" // Hovered dot is blue
-                                      : "red" // Default dot color is red
+                                        ? "green" // Selected dot is green
+                                        : previousDot === point
+                                          ? "yellow" // Previous dot is yellow
+                                          : hoveredDotId === point.id
+                                            ? "blue" // Hovered dot is blue
+                                            : "red" // Default dot color is red
                                   }
                                   draggable
                                   onDragMove={(e) =>
@@ -1069,7 +1257,7 @@ const VideoAnnotations2 = () => {
                                       : "black"
                                   }
                                   strokeWidth={
-                                    hoveredLineIndex === line.id ? 4 : 2
+                                    hoveredLineIndex === line.id ? Math.max(lineStrokeWidth + 2, lineStrokeWidth) : lineStrokeWidth
                                   }
                                   onMouseEnter={() =>
                                     setHoveredLineIndex(line.id)
@@ -1109,9 +1297,24 @@ const VideoAnnotations2 = () => {
                       y={selectionBox.y}
                       width={selectionBox.width}
                       height={selectionBox.height}
-                      fill="rgba(0, 0, 255, 0.3)" // Blue transparent box
-                      stroke="blue"
-                      strokeWidth={1}
+                      fill={autoDetectMode === 'selection' ? "rgba(76, 175, 80, 0.3)" : "rgba(0, 0, 255, 0.3)"}
+                      stroke={autoDetectMode === 'selection' ? "#4caf50" : "blue"}
+                      strokeWidth={2}
+                      dash={[5, 5]}
+                    />
+                  )}
+                  
+                  {/* Auto-detection selection area indicator */}
+                  {autoDetectSelection && autoDetectMode === 'selection' && (
+                    <Rect
+                      x={autoDetectSelection.x}
+                      y={autoDetectSelection.y}
+                      width={autoDetectSelection.width}
+                      height={autoDetectSelection.height}
+                      stroke="#4caf50"
+                      strokeWidth={3}
+                      dash={[10, 5]}
+                      fill="rgba(76, 175, 80, 0.2)"
                     />
                   )}
                   {
@@ -1128,7 +1331,7 @@ const VideoAnnotations2 = () => {
                           ?.dots?.at(0)?.y
                       }
                       // offsetX={point.x} offsetY={point.y}
-                      visible={ann.label !== ""}
+                      visible={ann.label !== "" && labelVisibility[ann.id] !== false}
                     >
                       <Tag
                         fill="white"
@@ -1165,7 +1368,231 @@ const VideoAnnotations2 = () => {
             onClose={() => setShowPopup(false)}
           />
         )}
+          </div>
+          
+          {/* Video Controls - Play/Pause and Progress Bar */}
+          <div style={{ marginTop: 8, width: '100%', maxWidth: '800px', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Button variant="contained" size="small" onClick={handlePlayPause}>
+              {isPlaying ? 'Pause' : 'Play'}
+            </Button>
+            <input
+              type="range"
+              min="0"
+              max={duration}
+              step="0.01"
+              value={currentTime}
+              onChange={handleSeek}
+              style={{ flex: 1, minWidth: 200 }}
+            />
+            <span style={{ fontSize: 12, minWidth: 80 }}>
+              {formatTime(currentTime)} / {formatTime(duration)}
+            </span>
+          </div>
+          
+          {/* File Upload */}
+          <div style={{ marginTop: 8 }}>
+            <input type="file" accept="video/*" onChange={handleUploadVideo} />
+          </div>
+          
+          {/* Toolbar */}
+          <div className="va-toolbar" style={{ marginTop: 8 }}>
+            <div className="va-group">
+              <span className="va-label">FPS</span>
+              <input type="number" min={1} value={fps} onChange={(e)=> setFps(parseInt(e.target.value)||1)} style={{ width: 96 }} />
+            </div>
+
+            <div className="va-group">
+              <span className="va-label" style={{ minWidth: 56, fontWeight: 600 }}>Dot size</span>
+              <input type="range" min={2} max={12} step={1} value={dotRadius} onChange={(e)=> setDotRadius(parseInt(e.target.value)||3)} style={{ width: 160 }} />
+              <span style={{ width: 30, textAlign: 'right', fontSize: 14, fontWeight: 500 }}>{dotRadius}</span>
+            </div>
+
+            <div className="va-group">
+              <span className="va-label" style={{ minWidth: 64, fontWeight: 600 }}>Line width</span>
+              <input type="range" min={1} max={8} step={1} value={lineStrokeWidth} onChange={(e)=> setLineStrokeWidth(parseInt(e.target.value)||2)} style={{ width: 160 }} />
+              <span style={{ width: 30, textAlign: 'right', fontSize: 14, fontWeight: 500 }}>{lineStrokeWidth}</span>
+            </div>
+
+            <div className="va-group">
+              <span className="va-label">Template</span>
+              <select value={selectedTemplate} onChange={(e) => setSelectedTemplate(e.target.value)} style={{ width: 160 }}>
+                <option value="">Select template</option>
+                {SKELETON_TEMPLATES.map(template => (
+                  <option key={template.id} value={template.id}>{template.name}</option>
+                ))}
+              </select>
+              <Button variant="outlined" size="small" onClick={handleApplySkeletonTemplate} disabled={!selectedTemplate}>
+                Apply
+              </Button>
+            </div>
+
+            <div className="va-group">
+              <span className="va-label">Mode</span>
+              <select 
+                value={autoDetectMode} 
+                onChange={(e) => {
+                  setAutoDetectMode(e.target.value as 'full' | 'selection');
+                  setAutoDetectSelection(null); // Clear selection when switching modes
+                }}
+                style={{ width: 140, fontSize: 11 }}
+              >
+                <option value="full">Full Frame</option>
+                <option value="selection">Selection</option>
+              </select>
+            </div>
+
+            <div className="va-group" style={{ minWidth: 0 }}>
+              <span className="va-label">Model</span>
+              <select
+                value={edgeOptions.model || 'dexined'}
+                onChange={(e) => setEdgeOptions(prev => ({ ...prev, model: e.target.value as any }))}
+                style={{ width: 180, minWidth: 0, fontSize: 11 }}
+              >
+                <option value="dexined">DexiNed (Best)</option>
+                <option value="hed">HED</option>
+                <option value="rindnet">RINDNet</option>
+                <option value="canny">Canny</option>
+                <option value="sobel">Sobel</option>
+                <option value="scharr">Scharr</option>
+              </select>
+            </div>
+
+            <div className="va-group">
+              <span className="va-label">Sensitivity</span>
+              <input 
+                type="range" 
+                min={10} 
+                max={100} 
+                step={5} 
+                value={edgeOptions.threshold} 
+                onChange={(e) => setEdgeOptions(prev => ({ ...prev, threshold: parseInt(e.target.value) }))} 
+                style={{ width: 160 }} 
+              />
+              <span style={{ width: 30, textAlign: 'right', fontSize: 12 }}>{edgeOptions.threshold}</span>
+              <Button 
+                variant="contained" 
+                size="small" 
+                onClick={handleAutoDetectEdges} 
+                disabled={isDetectingEdges || !videoUrl}
+                style={{ backgroundColor: '#4caf50', color: 'white' }}
+              >
+                {isDetectingEdges ? 'Detecting...' : 'Auto-Detect'}
+              </Button>
+              <Button 
+                variant="outlined" 
+                size="small" 
+                onClick={() => setShowDebugInfo(!showDebugInfo)}
+                style={{ fontSize: 10 }}
+              >
+                {showDebugInfo ? 'Hide Debug' : 'Debug'}
+              </Button>
+            </div>
+
+            {autoDetectMode === 'selection' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#666' }}>
+                {autoDetectSelection ? (
+                  <span>Selection: {Math.round(autoDetectSelection.width)}×{Math.round(autoDetectSelection.height)}</span>
+                ) : (
+                  <span>Drag on video to select area</span>
+                )}
+                {autoDetectSelection && (
+                  <Button 
+                    variant="text" 
+                    size="small" 
+                    onClick={() => setAutoDetectSelection(null)}
+                    style={{ fontSize: 10, minWidth: 'auto', padding: '2px 6px' }}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Button 
+                variant="outlined" 
+                size="small" 
+                onClick={handleUndo} 
+                disabled={!undoRedoInfo.canUndo}
+                title={`Undo: ${undoRedoInfo.currentAction} (Ctrl+Z)`}
+              >
+                ↶ Undo
+              </Button>
+              <Button 
+                variant="outlined" 
+                size="small" 
+                onClick={handleRedo} 
+                disabled={!undoRedoInfo.canRedo}
+                title="Redo (Ctrl+Y)"
+              >
+                ↷ Redo
+              </Button>
+            </div>
+
+            <Button variant="outlined" size="small" onClick={handleDownloadDotsCsv}>Download Dots CSV</Button>
+            <Button variant="outlined" size="small" onClick={handleDownloadLinesCsv}>Download Lines CSV</Button>
+          </div>
+
+          <div style={{ display: "flex", padding: "1rem", marginTop: "1rem", alignItems: 'center', gap: 8 }}>
+            Current Frame: &nbsp;
+            <input
+              type="number"
+              min={1}
+              max={totalFrames}
+              value={currentFrame}
+              onChange={(e) => onChangeFrameNumber(e)}
+            />
+            <Button variant="text" onClick={handleLoadPrevAnnotations}>Populate last annotations</Button>
+          </div>
+        </div>
+
+        <div style={{ padding: "1rem", width: 400 }}>
+          <div style={{ fontWeight: 600, marginBottom: 8 }}>Annotations in current frame:</div>
+          {allVideoAnnotations
+            .filter((ann) =>
+              ann.frames.some((frameObj) => frameObj.frame === currentFrame)
+            )
+            .map((annotation) => {
+              return (
+                <Card
+                  key={annotation.id}
+                  style={{
+                    width: "100%",
+                    padding: "1rem",
+                    margin: "4px 0",
+                    display: "flex",
+                  }}
+                >
+                  <TextField
+                    label="label"
+                    value={annotation.label}
+                    style={{ minHeight: "1rem", flex: 1 }}
+                    onChange={(e) =>
+                      onChangeAnnLabel(e.target.value, annotation.id)
+                    }
+                  />
+                  <IconButton
+                    onClick={() => toggleLabelVisibility(annotation.id)}
+                    title={labelVisibility[annotation.id] === false ? "Show label" : "Hide label"}
+                  >
+                    {labelVisibility[annotation.id] === false ? (
+                      <VisibilityOffIcon />
+                    ) : (
+                      <VisibilityIcon />
+                    )}
+                  </IconButton>
+                  <IconButton
+                    onClick={() => onDeleteaAnnotation(annotation.id)}
+                    title="Delete annotation"
+                  >
+                    <DeleteIcon />
+                  </IconButton>
+                </Card>
+              );
+            })}
+        </div>
       </div>
+      
       {/* Delete Popup for Line */}
       {showLinePopup && (
         <DeletePopup
@@ -1186,88 +1613,6 @@ const VideoAnnotations2 = () => {
           onClose={() => setShowDeleteAllPopup(false)}
         />
       )}
-      {/* Custom Video Controls */}
-      <div
-        style={{
-          marginTop: 12,
-          backgroundColor: "rgba(0,0,0,0.5)",
-          padding: "5px",
-          borderRadius: "5px",
-          width: "800px",
-        }}
-      >
-        <button onClick={handlePlayPause}>
-          {isPlaying ? "Pause" : "Play"}
-        </button>
-        <input
-          type="range"
-          min="0"
-          max={duration}
-          step="0.01"
-          value={currentTime}
-          onChange={handleSeek}
-          style={{ width: "400px", margin: "0 10px" }}
-        />
-        <span style={{ color: "#fff" }}>
-          {formatTime(currentTime)} / {formatTime(duration)}
-        </span>
-      </div>
-      {/* <div style={{ bottom: 0 }}>
-                current time: {currentTime}
-                <br/>
-                total duration: {duration}
-            </div> */}
-      <div style={{ display: "flex", padding: "1rem", marginTop: "1rem" }}>
-        Current Frame: &nbsp;
-        <input
-          type="number"
-          min={1}
-          max={totalFrames}
-          value={currentFrame}
-          onChange={(e) => onChangeFrameNumber(e)}
-        />
-        <button
-          onClick={handleLoadPrevAnnotations}
-          style={{ marginLeft: "12px" }}
-        >
-          Populate last annotations
-        </button>
-      </div>
-      <div style={{ padding: "1rem" }}>
-        Annotations in current frame:
-        {allVideoAnnotations
-          .filter((ann) =>
-            ann.frames.some((frameObj) => frameObj.frame === currentFrame)
-          )
-          .map((annotation) => {
-            return (
-              <Card
-                key={annotation.id}
-                style={{
-                  width: "400px",
-                  padding: "2rem",
-                  margin: "4px",
-                  display: "flex",
-                }}
-              >
-                <TextField
-                  label="label"
-                  value={annotation.label}
-                  style={{ minHeight: "1rem" }}
-                  onChange={(e) =>
-                    onChangeAnnLabel(e.target.value, annotation.id)
-                  }
-                />
-                <IconButton
-                  style={{ marginLeft: "auto" }}
-                  onClick={() => onDeleteaAnnotation(annotation.id)}
-                >
-                  <DeleteIcon />
-                </IconButton>
-              </Card>
-            );
-          })}
-      </div>
     </>
   );
 };
