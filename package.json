@@ -12,7 +12,8 @@
     "react-dom": "^19.0.0",
     "react-konva": "^19.0.2",
     "react-player": "^2.16.0",
-    "react-scripts": "5.0.1"
+    "react-scripts": "5.0.1",
+    "onnxruntime-web": "^1.18.0"
   },
   "scripts": {
     "start": "react-scripts start",

@@ -19,6 +19,8 @@ import { DUMMY_ANNOTATIONS } from "./dummyData.js";
 // import { Delete } from "@material-ui/icons";
 import { Card, IconButton, TextField, Button } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import DeletePopup from './DeletePopup.tsx';
 import { Annotation } from '../types/annotation.ts';
 import { secondsToFrame, frameToSeconds } from '../utils/time.ts';
@@ -28,6 +30,7 @@ import { annotationsToDotsCsv, annotationsToLinesCsv, downloadCsv } from '../uti
 import { SKELETON_TEMPLATES, applySkeletonTemplate, SkeletonTemplate } from '../utils/skeletonTemplates.ts';
 import { UndoRedoManager } from '../utils/undoRedo.ts';
 import { detectEdges, DEFAULT_EDGE_OPTIONS, EdgeDetectionOptions } from '../utils/edgeDetection.ts';
+import { detectEdgesWithYolo } from '../utils/yolo.ts';
 
 const DEFAULT_FRAME_RATE = 15;
 
@@ -36,6 +39,7 @@ const VideoAnnotations2 = () => {
     useState<Array<Annotation>>(DUMMY_ANNOTATIONS);
   const [fps, setFps] = useState<number>(DEFAULT_FRAME_RATE);
   const [videoUrl, setVideoUrl] = useState<string>(dummyVideo);
+  const [labelVisibility, setLabelVisibility] = useState<Record<string, boolean>>({});
   const [keypointsPerFrame, setKeypointsPerFrame] = useState({}); // Store keypoints per frame
   // const [currentKeypoints, setCurrentKeypoints] = useState([]);    // Keypoints for current frame
   // const [lastEditedFrameContext, setLastEditedFrameContext] = useState<{
@@ -95,6 +99,7 @@ const VideoAnnotations2 = () => {
   const [showDebugInfo, setShowDebugInfo] = useState(false);
   const [autoDetectMode, setAutoDetectMode] = useState<'full' | 'selection'>('full');
   const [autoDetectSelection, setAutoDetectSelection] = useState<{x: number, y: number, width: number, height: number} | null>(null);
+  const [yoloAvailable, setYoloAvailable] = useState<boolean>(true);
   console.log({ allVideoAnnotations });
   //set current frame number on time change
   useEffect(() => {
@@ -179,21 +184,63 @@ const VideoAnnotations2 = () => {
       // Save current state before auto-detection
       saveToHistory(`Auto-detect edges (${autoDetectMode} mode)`);
 
-      // Detect edges with correct display dimensions and optional bounding box
-      const { dots, lines } = detectEdges(
-        videoElement, 
-        edgeOptions, 
-        800, 
-        450, 
-        autoDetectMode === 'selection' ? autoDetectSelection : undefined
-      );
+      let dots: any[] = [];
+      let lines: any[] = [];
+
+      // If YOLO is available and we're in full-frame mode, try YOLO-assisted detection first
+      if (yoloAvailable && autoDetectMode === 'full') {
+        try {
+          const res = await detectEdgesWithYolo(videoElement, edgeOptions, 800, 450, {
+            classFilter: ['person'],
+            maxDetections: 3,
+          });
+          if (res && (res.dots.length > 0 || res.lines.length > 0)) {
+            dots = res.dots;
+            lines = res.lines;
+          } else {
+            // Fallback to our Canny pipeline
+            const fallback = await detectEdges(
+              videoElement,
+              edgeOptions,
+              800,
+              450,
+              autoDetectMode === 'selection' ? autoDetectSelection : undefined
+            );
+            dots = fallback.dots;
+            lines = fallback.lines;
+          }
+        } catch (e) {
+          console.warn('YOLO detection failed or model missing, falling back to Canny.', e);
+          setYoloAvailable(false);
+          const fallback = await detectEdges(
+            videoElement,
+            edgeOptions,
+            800,
+            450,
+            autoDetectMode === 'selection' ? autoDetectSelection : undefined
+          );
+          dots = fallback.dots;
+          lines = fallback.lines;
+        }
+      } else {
+        // Selection mode or YOLO not available → use Canny
+        const fallback = await detectEdges(
+          videoElement,
+          edgeOptions,
+          800,
+          450,
+          autoDetectMode === 'selection' ? autoDetectSelection : undefined
+        );
+        dots = fallback.dots;
+        lines = fallback.lines;
+      }
       
       if (dots.length > 0 || lines.length > 0) {
         setAllVideoAnnotations(prev => {
           const newAnnotations = [...prev];
           newAnnotations.push({
             id: generateUniqueId(),
-            label: `Auto-detected edges (${dots.length} points, ${autoDetectMode} mode)`,
+            label: `Auto-detected outline (${dots.length} points, ${autoDetectMode} mode)`,
             frames: [{
               frame: currentFrame,
               dots,
@@ -247,6 +294,14 @@ const VideoAnnotations2 = () => {
       setAllVideoAnnotations(nextState);
       setUndoRedoInfo(undoRedoManager.getHistoryInfo());
     }
+  };
+
+  // Toggle label visibility for an annotation
+  const toggleLabelVisibility = (annotationId: string) => {
+    setLabelVisibility(prev => ({
+      ...prev,
+      [annotationId]: !prev[annotationId]
+    }));
   };
 
   // Keyboard event handler
@@ -1276,7 +1331,7 @@ const VideoAnnotations2 = () => {
                           ?.dots?.at(0)?.y
                       }
                       // offsetX={point.x} offsetY={point.y}
-                      visible={ann.label !== ""}
+                      visible={ann.label !== "" && labelVisibility[ann.id] !== false}
                     >
                       <Tag
                         fill="white"
@@ -1387,6 +1442,23 @@ const VideoAnnotations2 = () => {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, color: '#333', minWidth: 60 }}>Model</span>
+              <select
+                value={edgeOptions.model || 'dexined'}
+                onChange={(e) => setEdgeOptions(prev => ({ ...prev, model: e.target.value as any }))}
+                style={{ width: 120, fontSize: 11 }}
+              >
+                <option value="dexined">DexiNed (Best)</option>
+                <option value="hed">HED</option>
+                <option value="rindnet">RINDNet</option>
+                <option value="canny">Canny</option>
+                <option value="sobel">Sobel</option>
+                <option value="scharr">Scharr</option>
+              </select>
+            </div>
+
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 12, color: '#333', minWidth: 60 }}>Sensitivity</span>
               <input 
                 type="range" 
@@ -1495,14 +1567,24 @@ const VideoAnnotations2 = () => {
                   <TextField
                     label="label"
                     value={annotation.label}
-                    style={{ minHeight: "1rem" }}
+                    style={{ minHeight: "1rem", flex: 1 }}
                     onChange={(e) =>
                       onChangeAnnLabel(e.target.value, annotation.id)
                     }
                   />
                   <IconButton
-                    style={{ marginLeft: "auto" }}
+                    onClick={() => toggleLabelVisibility(annotation.id)}
+                    title={labelVisibility[annotation.id] === false ? "Show label" : "Hide label"}
+                  >
+                    {labelVisibility[annotation.id] === false ? (
+                      <VisibilityOffIcon />
+                    ) : (
+                      <VisibilityIcon />
+                    )}
+                  </IconButton>
+                  <IconButton
                     onClick={() => onDeleteaAnnotation(annotation.id)}
+                    title="Delete annotation"
                   >
                     <DeleteIcon />
                   </IconButton>
